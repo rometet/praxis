@@ -1,0 +1,66 @@
+# Praxis Client repository allow-list.
+#
+# Keep the public repository focused on source code, documentation, and
+# the exact assets required to build it. Exclude local reference material,
+# downloaded tools, build trees, runtime data, and generated binaries.
+/*
+!/.gitignore
+!/.gitattributes
+!/CMakeLists.txt
+!/CMakePresets.json
+!/README.md
+!/LICENSE
+!/LICENSE.*
+!/CHANGELOG
+!/CHANGELOG.*
+!/CONTRIBUTING.md
+!/SECURITY.md
+!/THIRD_PARTY_NOTICES.md
+!/fix_sdk.py
+!/.github/
+!/.github/**
+!/cmake/
+!/cmake/**
+!/docs/
+!/docs/**
+!/mappings/
+!/mappings/**
+!/src/
+!/src/**
+!/tests/
+!/tests/**
+
+# Heavy/generated files under the included trees.
+**/build/
+**/build-*/
+**/_deps/
+**/.codegraph/
+**/.git/
+**/node_modules/
+**/dist/
+**/*.log
+**/*.zip
+**/*.tar.gz
+**/*.tgz
+**/*.jar
+**/*.dll
+**/*.exe
+**/*.pdb
+**/*.obj
+**/*.lib
+**/*.ilk
+**/*.exp
+**/*.d
+**/*.tmp
+**/*.bak
+**/*.orig
+
+# CMake/IDE user state.
+**/CMakeCache.txt
+**/CMakeFiles/
+**/.vs/
+**/.vscode/
+**/.idea/
+**/*.user
+**/*.suo
+**/compile_commands.json

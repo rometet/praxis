@@ -1,0 +1,42 @@
+name: Bug report
+description: Report a reproducible Praxis problem
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Do not include credentials, private server information, crash dumps containing personal data, or security-sensitive exploit details here.
+  - type: input
+    id: version
+    attributes:
+      label: Praxis version / commit
+      placeholder: e.g. release tag or commit SHA
+    validations:
+      required: true
+  - type: input
+    id: minecraft
+    attributes:
+      label: Minecraft Bedrock version
+      placeholder: e.g. 1.21.132
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Problem
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest reliable sequence that reproduces the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Add relevant logs, screenshots, or configuration details after removing sensitive information.
