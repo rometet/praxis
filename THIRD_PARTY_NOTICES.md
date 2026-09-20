@@ -8,12 +8,22 @@ Third-party software, assets, fonts, headers, mappings, and other materials are 
 
 Only material whose redistribution terms are known and compatible with public distribution may be added to this repository.
 
-## Notices before the first source release
+The exact third-party components distributed in a source release must be documented here, including the project name, upstream URL, applicable license, required copyright notice, and any required attribution.
 
-Before source code is published here, this document should be updated with the exact third-party components that are actually distributed, including their project names, upstream URLs, copyright notices, licenses, and any required attribution.
+Bundled font notices and license files must remain with the corresponding font assets when those assets are published.
 
-Bundled font notices and license files must also remain with the corresponding font assets when those assets are published.
+## Release correspondence
+
+A public binary release must point to the exact public source tag and commit used for that release. The binary package README must include the canonical source repository URL:
+
+`https://github.com/rometet/praxis`
+
+See [`RELEASE_POLICY.md`](RELEASE_POLICY.md) for the required release metadata.
+
+## Before the first source release
+
+This repository is currently being prepared for its first public source release. Before source code is published, this document must be updated from the audited release tree so that the notices here match the third-party material actually distributed.
 
 ## Project relationship
 
-Praxis is an independent project and is not affiliated with or endorsed by Mojang Studios or Microsoft.
+Praxis Client is an unofficial third-party project and is not affiliated with, endorsed by, or approved by Mojang Studios or Microsoft.
