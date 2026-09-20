@@ -12,4 +12,4 @@ Describe how the change was tested or otherwise verified.
 - [ ] I have the right to submit all code and assets included in this pull request.
 - [ ] Existing copyright, attribution, and third-party license notices are preserved.
 - [ ] I did not add private reference material, credentials, logs, dumps, or server data.
-- [ ] I understand that submitted Praxis contributions are provided under MPL-2.0 unless explicitly agreed otherwise.
+- [ ] I understand that submitted Praxis contributions are provided under GPL-3.0-or-later unless explicitly agreed otherwise.

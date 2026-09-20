@@ -13,7 +13,7 @@ Once the source is published:
 
 ## Licensing of contributions
 
-Unless explicitly agreed otherwise, contributions submitted to Praxis are provided under the same license as the Praxis-owned code: the Mozilla Public License 2.0 (`MPL-2.0`).
+Unless explicitly agreed otherwise, contributions submitted to Praxis are provided under the same license as the Praxis-owned code: the GNU General Public License v3.0 or later (`GPL-3.0-or-later`).
 
 By submitting a contribution, you represent that you created it or otherwise have sufficient rights to submit it under those terms.
 

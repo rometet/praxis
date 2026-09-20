@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-Praxis-owned source code is licensed under the Mozilla Public License 2.0 (`MPL-2.0`) unless a file or directory states otherwise.
+Praxis-owned source code is licensed under the GNU General Public License v3.0 or later (`GPL-3.0-or-later`) unless a file or directory states otherwise.
 
 Third-party software, assets, fonts, headers, mappings, and other materials are **not relicensed by Praxis**. They remain subject to their respective copyright notices and license terms. When third-party material is included in a public source release, its required notices and license text must be preserved alongside it.
 
