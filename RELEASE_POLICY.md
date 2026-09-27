@@ -48,4 +48,4 @@ Only material cleared for redistribution and required for the public source/buil
 
 ## 6. Current state
 
-No public binary release has been published from this repository yet. The first public source release is still being prepared.
+The first public release line targets Minecraft Bedrock `1.26.51.01` with LeviLamina Client `26.51.5`. Release `v0.1.0` is published from an immutable public source tag and matching binary metadata.

@@ -15,6 +15,15 @@
 !/CHANGELOG.*
 !/CONTRIBUTING.md
 !/SECURITY.md
+!/xmake.lua
+!/manifest.json
+!/config.example.json
+!/RELEASE_POLICY.md
+!/CHANGELOG.md
+!/tools/
+!/tools/**
+!/licenses/
+!/licenses/**
 !/THIRD_PARTY_NOTICES.md
 !/fix_sdk.py
 !/.github/
@@ -37,6 +46,8 @@
 **/.codegraph/
 **/.git/
 **/node_modules/
+**/__pycache__/
+**/*.pyc
 **/dist/
 **/*.log
 **/*.zip

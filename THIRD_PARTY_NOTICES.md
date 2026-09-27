@@ -1,28 +1,43 @@
 # Third-Party Notices
 
-Praxis-owned source code is licensed under the GNU General Public License v3.0 or later (`GPL-3.0-or-later`) unless a file or directory states otherwise.
+Praxis-owned source code is licensed under GPL-3.0-or-later unless a file or directory states otherwise.
 
-Third-party software, assets, fonts, headers, mappings, and other materials are **not relicensed by Praxis**. They remain subject to their respective copyright notices and license terms. When third-party material is included in a public source release, its required notices and license text must be preserved alongside it.
+Third-party components are not relicensed by Praxis.
 
-## Publication rule
+## Vendored source
 
-Only material whose redistribution terms are known and compatible with public distribution may be added to this repository.
+### kiero-derived DXGI method discovery
 
-The exact third-party components distributed in a source release must be documented here, including the project name, upstream URL, applicable license, required copyright notice, and any required attribution.
+- Upstream: https://github.com/Rebzzel/kiero
+- License: MIT
+- Local files: `src/vendor/kiero/kiero.cpp`, `src/vendor/kiero/kiero.h`
+- License text: `licenses/kiero/LICENSE`
 
-Bundled font notices and license files must remain with the corresponding font assets when those assets are published.
+The local kiero files are adapted for Praxis D3D11/D3D12 method discovery and hook bootstrap.
 
-## Release correspondence
+## Embedded fonts
 
-A public binary release must point to the exact public source tag and commit used for that release. The binary package README must include the canonical source repository URL:
+The following fonts are embedded into the Windows DLL through `src/resources/praxis_companion.rc`.
 
-`https://github.com/rometet/praxis`
+- Corporate Logo Bold ver3 — SIL Open Font License 1.1; attribution/notice files are kept beside the font.
+- Noto Sans JP — SIL Open Font License 1.1.
+- Inter — SIL Open Font License 1.1.
+- IBM Plex Sans — SIL Open Font License 1.1.
 
-See [`RELEASE_POLICY.md`](RELEASE_POLICY.md) for the required release metadata.
+Font binaries and their license files are in `src/assets/fonts/`; release-package copies are under `licenses/fonts/`.
 
-## Before the first source release
+## Build/runtime dependencies
 
-This repository is currently being prepared for its first public source release. Before source code is published, this document must be updated from the audited release tree so that the notices here match the third-party material actually distributed.
+These are resolved through xmake / the LeviMC package repository instead of being vendored here:
+
+- LeviLamina 26.51.5 — https://github.com/LiteLDev/LeviLamina
+- Dear ImGui v1.91.9 — https://github.com/ocornut/imgui — MIT
+- fmt — https://github.com/fmtlib/fmt — MIT
+- LevelDB — https://github.com/google/leveldb — BSD 3-Clause-style license
+- Snappy — https://github.com/google/snappy — BSD 3-Clause-style license
+- SymbolProvider v1.3.0 — https://github.com/LiteLDev/SymbolProvider
+
+Where dependency license terms require notices for binary redistribution, those terms remain applicable.
 
 ## Project relationship
 

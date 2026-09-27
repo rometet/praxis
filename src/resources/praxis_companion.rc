@@ -1,0 +1,6 @@
+#include "ResourceIds.h"
+
+IDR_CORPORATE_LOGO_FONT RCDATA "../assets/fonts/Corporate-Logo-Bold-ver3.otf"
+IDR_NOTO_SANS_JP_FONT RCDATA "../assets/fonts/NotoSansJP-wght.ttf"
+IDR_INTER_FONT RCDATA "../assets/fonts/Inter-opsz-wght.ttf"
+IDR_IBM_PLEX_SANS_FONT RCDATA "../assets/fonts/IBMPlexSans-Regular.ttf"
