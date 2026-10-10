@@ -1,0 +1,40 @@
+PraxisCompanion public prerelease incorporating ChiyanMap
+2026-10-02
+
+This DLL is a Larger Work containing ChiyanMap terrain code, licensed under
+GNU GPL version 3, and the pre-existing Praxis source covered by MPL 2.0.
+The combined executable is distributed under GPL-3.0-only. Full GPL text is
+GPL-3.0.txt. It is supplied without warranty as described in the licenses.
+
+The original MPL 2.0 LICENSE, copyright and third-party notices are retained.
+For the MPL-covered source actually included in this Larger Work, source is
+additionally distributed under GPL version 3 pursuant to MPL 2.0 section 3.3.
+Recipients may use those covered portions under either MPL 2.0 or GPL 3.
+This does not replace the original MPL license of other Praxis work or license
+unrelated mods. Third-party MIT/BSD/Apache/Zlib/OFL and SDK notices remain in
+force; the ChiyanMap-derived files remain GPL 3 and are not MPL-only.
+
+The public source tag and corresponding-source archive provide the exact
+Companion source, build scripts, terrain attribution and embedded font notices.
+The accompanying preferred-dependency-source archive provides the pinned
+third-party source and license records. See SOURCE_BUILD.md for build and
+relink instructions. Redistribute this DLL with its corresponding source and
+all applicable notices.
+
+ChiyanMap: https://github.com/sunjing2/ChiyanMap
+Commit: 1785278a865e6dc93d38cea76ccbffaaf64f6659
+Authors: sunjing2 and contributors (existing upstream attribution preserved).
+Modified for Praxis on 2026-10-02: value-only palette, native surface adapter,
+biome interpolation, water overlay and terrain relief. No ChiyanMap renderer,
+input owner, inventory-update suppression, teleport or seed map is imported.
+Original comments describing Xaero texture colour sampling are retained; no
+Xaero artwork, assets or binaries are included.
+
+Eligibility audit: the active compiled Praxis sources have no Exhibit B
+incompatibility marking and no MPL 1.1-only marking; the retained project
+license/provenance closure records MPL 2.0 as the project-authored scope.
+The standard Exhibit B printed at the end of LICENSE is not a file marking.
+There is an actual combination with the existing GPL ChiyanMap work, rather
+than a replacement license asserted for the entire historical project.
+References: https://www.mozilla.org/en-US/MPL/2.0/ (section 3.3)
+https://www.mozilla.org/en-US/MPL/2.0/FAQ/ (Q14 and Q25).

@@ -39,6 +39,27 @@
 !/tests/
 !/tests/**
 
+# Current audited Companion layout and portable build instructions.
+!/SOURCE_BUILD.md
+!/companion/
+/companion/*
+!/companion/LICENSE
+!/companion/LICENSE_COMBINED.txt
+!/companion/README.md
+!/companion/config.example.json
+!/companion/manifest.json
+!/companion/xmake.lua
+!/companion/src/
+!/companion/src/**
+!/companion/tests/
+!/companion/tests/**
+!/companion/tools/
+/companion/tools/*
+!/companion/tools/audit_map_boundaries.py
+!/companion/tools/convert_ui_render.py
+!/companion/tools/run_approved_lifecycle_regressions.py
+!/companion/tools/verify_runtime_package.py
+
 # Heavy/generated files under the included trees.
 **/build/
 **/build-*/

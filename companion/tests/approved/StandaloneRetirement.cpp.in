@@ -1,0 +1,198 @@
+#include <array>
+#include <atomic>
+#include <condition_variable>
+#include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <vector>
+#define STDMETHODCALLTYPE
+#define CALLBACK
+#define IID_PPV_ARGS(x) x
+using HRESULT=int; using UINT=unsigned; using ULONG_PTR=std::uintptr_t; using LONG_PTR=std::intptr_t;
+using HANDLE=void*; using HWND=void*; using WNDPROC=LONG_PTR(*)(HWND,UINT,ULONG_PTR,LONG_PTR);
+using DXGI_FORMAT=int;
+constexpr int FALSE=0, ERROR_SUCCESS=0, GWLP_WNDPROC=1, D3D12_FENCE_FLAG_NONE=0;
+constexpr HRESULT DXGI_ERROR_INVALID_CALL=-1,DXGI_ERROR_DEVICE_REMOVED=-2,DXGI_ERROR_DEVICE_RESET=-3;
+constexpr unsigned WAIT_OBJECT_0=0,WAIT_TIMEOUT=258,WAIT_FAILED=0xffffffff;
+bool SUCCEEDED(HRESULT h){return h>=0;} bool FAILED(HRESULT h){return h<0;}
+unsigned checks{};
+void require(bool b,char const* label){++checks;if(!b){std::fprintf(stderr,"FAIL: %s\n",label);std::exit(1);}}
+struct Faults {
+    int device{},fence{},signal{},eventRegistration{},removed{};
+    bool eventCreation{true},completeAfterWait{true},unhook{true},listenerRemoval{true};
+    unsigned waitResult{WAIT_OBJECT_0},closes{},waits{},registrations{},flushes{},mapClears{},shutdowns{},resizes{},signals{};
+    std::uint64_t completed{};
+} faults;
+template<class T> struct ComPtr {
+    T* ptr{};
+    ComPtr()=default; ComPtr(T* p):ptr(p){}
+    T* Get()const{return ptr;} T* operator->()const{return ptr;} T** operator&(){return &ptr;}
+    explicit operator bool()const{return ptr!=nullptr;}
+    void Reset(){ptr=nullptr;} ComPtr& operator=(T* p){ptr=p;return *this;}
+};
+struct ID3D12Fence { HRESULT SetEventOnCompletion(int,HANDLE){++faults.registrations;return faults.eventRegistration;} std::uint64_t GetCompletedValue(){return faults.completed;} } fakeFence;
+struct ID3D12Device {
+    HRESULT CreateFence(int,int,ID3D12Fence** p){if(FAILED(faults.fence))return faults.fence;*p=&fakeFence;return 0;}
+    HRESULT GetDeviceRemovedReason(){return faults.removed;}
+} fakeDevice;
+struct ID3D12CommandQueue {
+    HRESULT GetDevice(ID3D12Device** p){if(FAILED(faults.device))return faults.device;*p=&fakeDevice;return 0;}
+    HRESULT Signal(ID3D12Fence*,int){++faults.signals;return faults.signal;}
+} fakeQueue,otherQueue;
+struct ID3D11RenderTargetView {} fakeTarget;
+struct ID3D11Resource {} fakeResource;
+struct ID3D11Device {} fake11;
+struct ID3D11On12Device {} fakeOn12;
+struct ID3D11DeviceContext { void OMSetRenderTargets(int,ID3D11RenderTargetView**,void*){} void Flush(){++faults.flushes;} } fakeContext;
+struct ImGuiContext {} fakeImgui;
+namespace ImGui { ImGuiContext* current{}; auto GetCurrentContext(){return current;} void SetCurrentContext(ImGuiContext* p){current=p;} void DestroyContext(ImGuiContext*){++faults.shutdowns;} }
+void ImGui_ImplDX11_Shutdown(){++faults.shutdowns;} void ImGui_ImplWin32_Shutdown(){++faults.shutdowns;}
+namespace map { void clearMapGraphics(){++faults.mapClears;} }
+int eventIdentity{};
+HANDLE CreateEventW(void*,int,int,void*){return faults.eventCreation?&eventIdentity:nullptr;}
+unsigned WaitForSingleObject(HANDLE,unsigned){++faults.waits;if(faults.completeAfterWait)faults.completed=1;return faults.waitResult;}
+void CloseHandle(HANDLE){++faults.closes;}
+void Sleep(unsigned){std::this_thread::yield();}
+LONG_PTR oldProc(HWND,UINT,ULONG_PTR,LONG_PTR){return 0;}
+LONG_PTR foreignProc(HWND,UINT,ULONG_PTR,LONG_PTR){return 0;}
+int windowIdentity{},lastError{};
+std::atomic<LONG_PTR> installedProc{reinterpret_cast<LONG_PTR>(&oldProc)};
+bool IsWindow(HWND p){return p!=nullptr;}
+void SetLastError(int e){lastError=e;} int GetLastError(){return lastError;}
+LONG_PTR GetWindowLongPtrW(HWND,int){return installedProc;}
+LONG_PTR SetWindowLongPtrW(HWND,int,LONG_PTR value){return installedProc.exchange(value);}
+struct DXGI_SWAP_CHAIN_DESC { HWND OutputWindow{&windowIdentity}; };
+struct IDXGISwapChain { HRESULT GetDesc(DXGI_SWAP_CHAIN_DESC* p){*p={};return 0;} } fakeChain;
+struct IDXGISwapChain3:IDXGISwapChain{} fakeChain3;
+struct IUnknown { HRESULT QueryInterface(ID3D12CommandQueue** p){*p=&otherQueue;return 0;} } fakeUnknown;
+namespace ll::event {
+struct KeyInputEvent {}; struct MouseInputEvent {};
+using ListenerPtr=std::shared_ptr<int>;
+struct EventBus { static EventBus& getInstance(){static EventBus b;return b;} template<class T> bool removeListener(ListenerPtr){return faults.listenerRemoval;} };
+}
+namespace ll::memory { bool unhook(void*,void*){return faults.unhook;} }
+struct StandaloneGrabMouseHook { static bool unhook(){return faults.unhook;} };
+unsigned hostCallbackDepth{};
+struct CallbackGuard { std::atomic<unsigned>& count; explicit CallbackGuard(std::atomic<unsigned>& n):count(n){++count;} ~CallbackGuard(){--count;} };
+void logGuiError(char const*){} void logGuiInfo(char const*){}
+// This mutex exposes a deterministic barrier immediately before render's lock.
+thread_local bool renderThread{};
+struct FrameMutex {
+    std::recursive_mutex native; std::mutex observation; std::condition_variable changed; bool renderWaiting{};
+    void lock(){if(renderThread){{std::lock_guard lock(observation);renderWaiting=true;}changed.notify_one();}native.lock();}
+    void unlock(){native.unlock();}
+};
+class StandaloneGuiHost {
+public:
+    struct Detour {void* target{};void* callback{};bool installed{};};
+    std::array<Detour,5> detours_{};
+    std::atomic_bool started_{true},visible_{},queueCaptured_{true},windowErrorLogged_{},graphicsWaitLogged_{},deviceLossLogged_{};
+    std::atomic<unsigned> callbacks_{}; FrameMutex frameMutex_;
+    ll::event::ListenerPtr keyListener_,mouseListener_;
+    std::atomic<HWND> window_{};std::atomic<WNDPROC> previousWndProc_{};
+    IDXGISwapChain* observedSwapchain_{};
+    bool grabMouseHookInstalled_{},imguiReady_{},on12_{},graphicsRetirementPending_{},retirementEventRegistered_{};
+    ComPtr<IDXGISwapChain> initializedSwapchain_; ComPtr<ID3D12CommandQueue> queue_;
+    ComPtr<ID3D12Fence> retirementFence_; HANDLE retirementEvent_{};
+    ComPtr<ID3D11Device> device11_;ComPtr<ID3D11DeviceContext> context11_;ComPtr<ID3D11On12Device> deviceOn12_;
+    ComPtr<ID3D11RenderTargetView> target11_;std::vector<ComPtr<ID3D11Resource>> wrapped_;
+    std::vector<ComPtr<ID3D11RenderTargetView>> targets_;void* imguiContext_{};
+    static std::atomic<StandaloneGuiHost*> instance_;
+    using ResizeFn=HRESULT(*)(IDXGISwapChain*,UINT,UINT,UINT,DXGI_FORMAT,UINT);
+    using Resize1Fn=HRESULT(*)(IDXGISwapChain3*,UINT,UINT,UINT,DXGI_FORMAT,UINT,UINT const*,IUnknown* const*);
+    ResizeFn originalResize_{};Resize1Fn originalResize1_{};
+    bool visible(){return visible_;} void setVisible(bool b){visible_=b;}
+    static LONG_PTR wndProc(HWND,UINT,ULONG_PTR,LONG_PTR){return 0;}
+    bool stop()noexcept;bool releaseGraphics()noexcept;bool installWndProc(IDXGISwapChain*)noexcept;
+    void renderFrame(IDXGISwapChain*)noexcept;void handlePresentResult(HRESULT)noexcept;
+    static HRESULT resize(IDXGISwapChain*,UINT,UINT,UINT,DXGI_FORMAT,UINT);
+    static HRESULT resize1(IDXGISwapChain3*,UINT,UINT,UINT,DXGI_FORMAT,UINT,UINT const*,IUnknown* const*);
+};
+std::atomic<StandaloneGuiHost*> StandaloneGuiHost::instance_{};
+@METHODS@
+HRESULT originalResize(IDXGISwapChain*,UINT,UINT,UINT,DXGI_FORMAT,UINT){++faults.resizes;return 0;}
+HRESULT originalResize1(IDXGISwapChain3*,UINT,UINT,UINT,DXGI_FORMAT,UINT,UINT const*,IUnknown* const*){++faults.resizes;return 0;}
+void setup(StandaloneGuiHost& h){
+    faults={};installedProc=reinterpret_cast<LONG_PTR>(&oldProc);h.on12_=h.imguiReady_=true;
+    h.queue_=&fakeQueue;h.device11_=&fake11;h.context11_=&fakeContext;h.deviceOn12_=&fakeOn12;
+    h.target11_=&fakeTarget;h.targets_={&fakeTarget};h.wrapped_={&fakeResource};h.imguiContext_=&fakeImgui;
+    h.initializedSwapchain_=&fakeChain;h.originalResize_=&originalResize;h.originalResize1_=&originalResize1;
+    StandaloneGuiHost::instance_=&h;
+}
+int main(){
+    for(unsigned stage=0;stage<8;++stage){
+        StandaloneGuiHost h;setup(h);
+        switch(stage){case 0:faults.device=-1;break;case 1:faults.fence=-1;break;case 2:faults.signal=-1;break;
+        case 3:faults.eventCreation=false;break;case 4:faults.eventRegistration=-1;break;case 5:faults.waitResult=WAIT_TIMEOUT;break;
+        case 6:faults.waitResult=WAIT_FAILED;break;case 7:faults.completeAfterWait=false;break;}
+        faults.completeAfterWait=false;
+        require(!h.releaseGraphics(),"GPU retirement fault must propagate");
+        require(h.imguiReady_ && h.imguiContext_==&fakeImgui && h.context11_.Get()==&fakeContext && h.wrapped_.size()==1 && h.queue_.Get()==&fakeQueue,"GPU failure keeps graphics and queue ownership");
+        require(!faults.mapClears && !faults.shutdowns && !faults.closes && h.graphicsRetirementPending_,"GPU failure cannot tear down backend or wait handle");
+        if(stage==5 || stage==6 || stage==7)require(h.retirementEventRegistered_ && h.retirementFence_.Get()==&fakeFence,"incomplete registered wait retains event and fence");
+        faults.device=faults.fence=faults.signal=faults.eventRegistration=0;faults.eventCreation=faults.completeAfterWait=true;faults.waitResult=WAIT_OBJECT_0;
+        require(h.releaseGraphics() && !h.context11_ && h.wrapped_.empty() && !h.graphicsRetirementPending_,"later confirmed GPU completion permits cleanup retry");
+        require(!h.retirementEvent_ && !h.retirementFence_ && faults.mapClears==1,"successful cleanup releases retained wait and map owner");
+    }
+    {
+        StandaloneGuiHost h;setup(h);faults.waitResult=WAIT_TIMEOUT;faults.completeAfterWait=false;
+        require(!h.stop() && StandaloneGuiHost::instance_==&h && h.queue_.Get()==&fakeQueue,"stop failure keeps host and queue alive");
+        require(!h.started_,"stop failure closes render admission");
+        faults.waitResult=WAIT_OBJECT_0;faults.completeAfterWait=true;
+        require(h.stop() && !StandaloneGuiHost::instance_ && !h.queue_,"stop retry clears ownership only after GPU completion");
+        require(h.stop(),"double stop is idempotent");
+    }
+    {
+        StandaloneGuiHost h;setup(h);faults.waitResult=WAIT_TIMEOUT;faults.completeAfterWait=false;
+        require(StandaloneGuiHost::resize(&fakeChain,2,1,1,0,0)==DXGI_ERROR_INVALID_CALL && !faults.resizes,"resize cannot bypass incomplete retirement");
+        IUnknown* queues[]{&fakeUnknown};
+        require(StandaloneGuiHost::resize1(&fakeChain3,2,1,1,0,0,nullptr,queues)==DXGI_ERROR_INVALID_CALL && h.queue_.Get()==&fakeQueue && !faults.resizes,"resize1 cannot replace retained queue");
+        faults.waitResult=WAIT_OBJECT_0;faults.completeAfterWait=true;
+        require(StandaloneGuiHost::resize(&fakeChain,2,1,1,0,0)==0 && faults.resizes==1,"resize forwards after retirement retry");
+    }
+    {
+        StandaloneGuiHost h;setup(h);faults.removed=-1;
+        h.handlePresentResult(DXGI_ERROR_DEVICE_REMOVED);
+        require(!h.queue_ && !h.context11_ && !faults.waits,"confirmed device removal retains reinitialization behavior");
+    }
+    for(bool existingWindow:{false,true}){
+        StandaloneGuiHost h;setup(h);
+        if(existingWindow){h.previousWndProc_=&oldProc;h.window_=&windowIdentity;installedProc=reinterpret_cast<LONG_PTR>(&StandaloneGuiHost::wndProc);}
+        h.frameMutex_.lock();
+        std::thread worker([&]{renderThread=true;h.renderFrame(&fakeChain);});
+        {std::unique_lock lock(h.frameMutex_.observation);require(h.frameMutex_.changed.wait_for(lock,std::chrono::seconds(5),[&]{return h.frameMutex_.renderWaiting;}),"render admitted before stop barrier");}
+        require(h.stop(),"stop succeeds while admitted render waits for frame lock");
+        h.frameMutex_.unlock();worker.join();
+        require(installedProc==reinterpret_cast<LONG_PTR>(&oldProc) && !h.previousWndProc_ && !h.window_,"first/changed-window render cannot reinstall WndProc after stop");
+    }
+    {
+        StandaloneGuiHost h;setup(h);h.frameMutex_.lock();
+        std::thread worker([&]{CallbackGuard callback(h.callbacks_);renderThread=true;h.renderFrame(&fakeChain);});
+        {std::unique_lock lock(h.frameMutex_.observation);require(h.frameMutex_.changed.wait_for(lock,std::chrono::seconds(5),[&]{return h.frameMutex_.renderWaiting;}),"counted Present reaches admission barrier");}
+        bool stopped{};std::thread stopper([&]{stopped=h.stop();});
+        auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+        while(h.started_ && std::chrono::steady_clock::now()<deadline)std::this_thread::yield();
+        require(!h.started_,"concurrent stop closes admission before lock release");
+        h.frameMutex_.unlock();worker.join();stopper.join();
+        require(stopped && !h.callbacks_ && installedProc==reinterpret_cast<LONG_PTR>(&oldProc),"counted Present drains without deadlock or stopped WndProc resurrection");
+    }
+    {
+        StandaloneGuiHost h;setup(h);h.keyListener_=std::make_shared<int>(1);faults.listenerRemoval=false;
+        require(!h.stop() && h.keyListener_ && StandaloneGuiHost::instance_==&h && h.context11_,"failed listener unregister keeps host resources");
+        faults.listenerRemoval=true;require(h.stop(),"listener unregister retry succeeds");
+    }
+    {
+        StandaloneGuiHost h;setup(h);h.detours_[0]={&fakeChain,&fakeQueue,true};faults.unhook=false;
+        require(!h.stop() && h.detours_[0].installed && h.context11_,"failed unhook keeps relay and graphics owners");
+        faults.unhook=true;require(h.stop(),"unhook retry succeeds");
+    }
+    {
+        StandaloneGuiHost h;setup(h);h.previousWndProc_=&oldProc;h.window_=&windowIdentity;installedProc=reinterpret_cast<LONG_PTR>(&foreignProc);
+        require(!h.stop() && installedProc==reinterpret_cast<LONG_PTR>(&foreignProc) && h.context11_,"foreign WndProc ownership is preserved");
+        installedProc=reinterpret_cast<LONG_PTR>(&StandaloneGuiHost::wndProc);require(h.stop(),"owned WndProc can retire later");
+    }
+    std::printf("RT03/RT09: %u checks PASS\n",checks);
+}
