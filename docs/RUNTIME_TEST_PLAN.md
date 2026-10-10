@@ -1,3 +1,5 @@
+> Historical v0.1.0 document. See the current README, SOURCE_BUILD.md and release metadata for v0.1.2-rc.1.
+
 # Minecraft 26.51.5 runtime test plan
 
 Use LeviLamina Client 26.51.5 and `PraxisCompanion.dll` from Praxis PR #2. First install only `mods/PraxisCompanion/`. Record game build, DLL hashes, config and any crash/freeze log. Start with every Companion feature OFF. Then repeat with optional `mods/LHolo/` from LHolo PR #12.

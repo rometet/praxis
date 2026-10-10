@@ -1,6 +1,0 @@
-#pragma once
-
-#define IDR_CORPORATE_LOGO_FONT 101
-#define IDR_NOTO_SANS_JP_FONT 102
-#define IDR_INTER_FONT 103
-#define IDR_IBM_PLEX_SANS_FONT 104

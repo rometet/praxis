@@ -1,3 +1,5 @@
+> Historical v0.1.0 document. See the current README, SOURCE_BUILD.md and release metadata for v0.1.2-rc.1.
+
 # PraxisCompanion architecture (26.51.5)
 
 PraxisCompanion is the utility mod; LHolo owns schematic projection and placement. The Companion runtime has seven named feature slots and does not load schematic code.

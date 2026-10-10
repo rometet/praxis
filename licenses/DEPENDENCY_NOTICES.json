@@ -1,0 +1,135 @@
+[
+  {
+    "name": "Dear-ImGui",
+    "version": "v1.91.9",
+    "repository": "https://github.com/ocornut/imgui",
+    "ref": "v1.91.9",
+    "licenseFiles": [
+      "licenses/Dear-ImGui/LICENSE.txt"
+    ],
+    "preferredSourceFiles": 78,
+    "upstreamArchiveSHA256": "3fe9e93066e37c630cbbada821a45812cd86df0f21a476cf74c925e1b649878d"
+  },
+  {
+    "name": "EnTT",
+    "version": "v4.0.0",
+    "repository": "https://github.com/skypjack/entt",
+    "ref": "v4.0.0",
+    "licenseFiles": [
+      "licenses/EnTT/LICENSE"
+    ],
+    "preferredSourceFiles": 167,
+    "upstreamArchiveSHA256": "6cae22c98a6a463b4152c65bfc3593cfaf6fda60b9bb65771d0752365af4fe83"
+  },
+  {
+    "name": "GLM",
+    "version": "1.0.1",
+    "repository": "https://github.com/g-truc/glm",
+    "ref": "1.0.1",
+    "licenseFiles": [
+      "licenses/GLM/copying.txt"
+    ],
+    "preferredSourceFiles": 439,
+    "upstreamArchiveSHA256": "09c5716296787e1f7fcb87b1cbdbf26814ec1288ed6259ccd30d5d9795809fa5"
+  },
+  {
+    "name": "GSL",
+    "version": "v4.2.0",
+    "repository": "https://github.com/microsoft/GSL",
+    "ref": "v4.2.0",
+    "licenseFiles": [
+      "licenses/GSL/LICENSE"
+    ],
+    "preferredSourceFiles": 22,
+    "upstreamArchiveSHA256": "f694e7b0f3debc0c55fe138efb5dd9f5c402989c0dc04e8a74afc9c155cb66b9"
+  },
+  {
+    "name": "LevelDB",
+    "version": "1.23",
+    "repository": "https://github.com/google/leveldb",
+    "ref": "1.23",
+    "licenseFiles": [
+      "licenses/LevelDB/LICENSE"
+    ],
+    "preferredSourceFiles": 144,
+    "upstreamArchiveSHA256": "a6fa7eebd11de709c46bf1501600ed98bf95439d6967963606cc964931ce906f"
+  },
+  {
+    "name": "LeviLamina",
+    "version": "26.51.5",
+    "repository": "https://github.com/LiteLDev/LeviLamina",
+    "ref": "b3ff77f271193b0833294a9a04e4f46fafe90b36",
+    "licenseFiles": [
+      "licenses/LeviLamina/COPYING",
+      "licenses/LeviLamina/COPYING.LESSER"
+    ],
+    "preferredSourceFiles": 25628,
+    "upstreamArchiveSHA256": "0966fd9f2b00ef16cd52be76c04cec628587fc28107f6698e0565061270f96b6"
+  },
+  {
+    "name": "PFR",
+    "version": "2.1.1",
+    "repository": "https://github.com/boostorg/pfr",
+    "ref": "294a4976bd04829dd204aaf9e9fd30338a5d3199",
+    "licenseFiles": [
+      "licenses/PFR/LICENSE_1_0.txt"
+    ],
+    "preferredSourceFiles": 51,
+    "upstreamArchiveSHA256": "e1bcab63d94d482d883f430091f26348511d036dc67e395b1e0691021f56d118"
+  },
+  {
+    "name": "Snappy",
+    "version": "1.2.2",
+    "repository": "https://github.com/google/snappy",
+    "ref": "1.2.2",
+    "licenseFiles": [
+      "licenses/Snappy/COPYING"
+    ],
+    "preferredSourceFiles": 36,
+    "upstreamArchiveSHA256": "89c009c9c661f466aa1c4fd866ca29c222e5b1b7d73d2beadb44493c3d0d8476"
+  },
+  {
+    "name": "SymbolProvider",
+    "version": "v1.3.0",
+    "repository": "https://github.com/LiteLDev/SymbolProvider",
+    "ref": "6c93ec45c8455992ee726d92df60316c8e731c44",
+    "licenseFiles": [
+      "licenses/SymbolProvider/NOTICE.txt"
+    ],
+    "preferredSourceFiles": 4,
+    "upstreamArchiveSHA256": "e4dcf2aa1c636192f32eb1345c2a93d6f75762a229bef08245368893a55ee862"
+  },
+  {
+    "name": "expected-lite",
+    "version": "v0.8.0",
+    "repository": "https://github.com/martinmoene/expected-lite",
+    "ref": "v0.8.0",
+    "licenseFiles": [
+      "licenses/expected-lite/LICENSE.txt"
+    ],
+    "preferredSourceFiles": 20,
+    "upstreamArchiveSHA256": "84878fb82c24fff3f7c062f9f8d53f1ac4f0eb5f11ad358efd24b5569c98288b"
+  },
+  {
+    "name": "fmt",
+    "version": "11.2.0",
+    "repository": "https://github.com/fmtlib/fmt",
+    "ref": "11.2.0",
+    "licenseFiles": [
+      "licenses/fmt/LICENSE"
+    ],
+    "preferredSourceFiles": 47,
+    "upstreamArchiveSHA256": "ebb31f63e14048ffba9200bbe27b339ec50226cbe8e96ca8b62ee16a0a4fb1af"
+  },
+  {
+    "name": "nlohmann-json",
+    "version": "v3.12.0",
+    "repository": "https://github.com/nlohmann/json",
+    "ref": "v3.12.0",
+    "licenseFiles": [
+      "licenses/nlohmann-json/LICENSE.MIT"
+    ],
+    "preferredSourceFiles": 101,
+    "upstreamArchiveSHA256": "34660b5e9a407195d55e8da705ed26cc6d175ce5a6b1fb957e701fb4d5b04022"
+  }
+]

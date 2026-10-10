@@ -1,44 +1,46 @@
-# Third-Party Notices
+# Third-party notices
 
-Praxis-owned source code is licensed under GPL-3.0-or-later unless a file or directory states otherwise.
+This release combines the imported Praxis Companion source with ChiyanMap
+terrain code. The combined DLL is GPL-3.0-only. The original MPL-2.0 source
+rights are retained in `companion/LICENSE` and `licenses/MPL-2.0.txt`; the
+covered source is also offered under GPL version 3 pursuant to MPL 2.0 section
+3.3. See `companion/LICENSE_COMBINED.txt`. The earlier public repository's GPL
+license remains in the root `LICENSE`. Third-party files retain their terms.
 
-Third-party components are not relicensed by Praxis.
+## Terrain code
 
-## Vendored source
+- ChiyanMap: https://github.com/sunjing2/ChiyanMap
+- Source commit: `1785278a865e6dc93d38cea76ccbffaaf64f6659`.
+- GPL-3.0-only; full text: `companion/src/map/chiyan/LICENSE`.
+- Adapted terrain palette, biome interpolation, surface/water and relief rules.
+  Original attribution and comments remain in the files and `PROVENANCE.json`.
 
-### kiero-derived DXGI method discovery
+## Linked components and SDK headers
 
-- Upstream: https://github.com/Rebzzel/kiero
-- License: MIT
-- Local files: `src/vendor/kiero/kiero.cpp`, `src/vendor/kiero/kiero.h`
-- License text: `licenses/kiero/LICENSE`
+The exact versions, upstream references and included notice paths are recorded
+in `licenses/DEPENDENCY_NOTICES.json`. Dear ImGui v1.91.9 and fmt 11.2.0 are MIT.
+LeviLamina 26.51.5 is used as the client SDK/runtime; its GPL and LGPL version 3
+texts are under `licenses/LeviLamina/`. SymbolProvider v1.3.0 preserves its
+source-file Public Domain and mingw-w64 notice under `licenses/SymbolProvider/`.
+Header dependencies include EnTT v4.0.0, nlohmann-json v3.12.0, GSL v4.2.0,
+GLM 1.0.1, expected-lite v0.8.0 and PFR 2.1.1. LevelDB 1.23 and Snappy 1.2.2
+are declared build dependencies with their BSD notices retained. The final
+link map identifies the components actually included in the DLL.
 
-The local kiero files are adapted for Praxis D3D11/D3D12 method discovery and hook bootstrap.
+The matching preferred-dependency-source archive accompanies the release.
+System-provided Windows/MSVC runtimes are obtained from their providers.
+
+## Graphics discovery
+
+The locally adapted `src/vendor/kiero/kiero.cpp` and `kiero.h` derive from
+https://github.com/Rebzzel/kiero and retain the MIT license in
+`licenses/kiero/LICENSE`.
 
 ## Embedded fonts
 
-The following fonts are embedded into the Windows DLL through `src/resources/praxis_companion.rc`.
+Corporate Logo Bold ver3, Noto Sans JP, Inter and IBM Plex Sans remain embedded
+in the DLL. Their OFL-1.1 texts, copyright and Japanese notice are retained in
+`src/assets/fonts/` and `licenses/fonts/`. Corporate Logo attribution includes
+LOGOTYPE.JP and Adobe's Source Han Sans-derived glyphs.
 
-- Corporate Logo Bold ver3 — SIL Open Font License 1.1; attribution/notice files are kept beside the font.
-- Noto Sans JP — SIL Open Font License 1.1.
-- Inter — SIL Open Font License 1.1.
-- IBM Plex Sans — SIL Open Font License 1.1.
-
-Font binaries and their license files are in `src/assets/fonts/`; release-package copies are under `licenses/fonts/`.
-
-## Build/runtime dependencies
-
-These are resolved through xmake / the LeviMC package repository instead of being vendored here:
-
-- LeviLamina 26.51.5 — https://github.com/LiteLDev/LeviLamina
-- Dear ImGui v1.91.9 — https://github.com/ocornut/imgui — MIT
-- fmt — https://github.com/fmtlib/fmt — MIT
-- LevelDB — https://github.com/google/leveldb — BSD 3-Clause-style license
-- Snappy — https://github.com/google/snappy — BSD 3-Clause-style license
-- SymbolProvider v1.3.0 — https://github.com/LiteLDev/SymbolProvider
-
-Where dependency license terms require notices for binary redistribution, those terms remain applicable.
-
-## Project relationship
-
-Praxis Client is an unofficial third-party project and is not affiliated with, endorsed by, or approved by Mojang Studios or Microsoft.
+Praxis Client is an unofficial project, unaffiliated with Mojang or Microsoft.

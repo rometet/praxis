@@ -1,3 +1,5 @@
+> Historical v0.1.0 document. See the current README, SOURCE_BUILD.md and release metadata for v0.1.2-rc.1.
+
 # Hook audit
 
 Companion utility hooks use LeviLamina's named type hook API. The standalone GUI has separate DXGI COM method detours installed only when LHolo is absent. Failure to remove a hook pins the DLL. The world overlay hook calls vanilla first; suppression hooks omit vanilla only while the corresponding NoRender pass is enabled. Hooks execute on Minecraft's rendering/game threads according to the target; no additional background scanner thread exists.

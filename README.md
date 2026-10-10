@@ -1,61 +1,54 @@
-# Praxis Client
+# Praxis Client / PraxisCompanion
 
-Praxis Client is a client-side utility mod for Minecraft Bedrock Edition.
+Minecraft Bedrock **1.26.51.01** / Windows x64 / LeviLamina Client **26.51.5**.
 
-## v0.1.0 target
+This is the public source for **v0.1.2-rc.1**, a prerelease. The FreeCamera key
+toggle change has offline regression coverage and awaits an actual game test.
+The user's Weather OK report belongs to the preceding installed build; it is
+not a claim that this new binary has passed native testing.
 
-- Minecraft Bedrock: **1.26.51.01**
-- LeviLamina Client SDK/runtime guard: **26.51.5**
-- Platform: **Windows x64**
-- Mod package name: **PraxisCompanion**
-- GUI key: **F10**
-- Source repository: https://github.com/rometet/praxis
+## Changes
 
-Praxis Client is an unofficial third-party project and is not affiliated with, endorsed by, or approved by Mojang Studios or Microsoft.
+- UI descriptions are Japanese. NoRender and its options, TimeChanger and
+  WeatherChanger keep their English names; ON/OFF stays unchanged.
+- HUD controls are collected in the left HUD page, with the layout editor,
+  equipment, durability, information, offhand and LHolo HUD controls retained.
+- InventoryHUD's 27-slot display is retired from UI and execution. Slot 23
+  remains reserved, preserving old settings and unknown feature slots.
+- FreeCamera's activation key toggles on each fresh press. Releasing the key
+  keeps it active; a second press turns it off. Repeated key-down events do not
+  toggle it repeatedly. Legacy `hold` values remain readable. Freelook keeps
+  its own hold/toggle choice, and FreeCamera keeps its unlimited offset travel
+  and existing restoration behavior.
+- WeatherChanger retains the current Clear/Rain/Snow sky implementation.
 
-## Features
-
-- NoRender
-- ChunkBorders
-- Fullbright
-- ShulkerPreview
-- RedstoneOverlay
-- LightOverlay
-- Zoom
-- Legacy Praxis-style module GUI
-
-LHolo is optional and can provide schematic/projection/placement functionality.
+Unfinished Resource world/gate changes are excluded. Current LHolo projection
+transparency/geometry issues remain a separate reported issue; this Praxis
+release does not claim to resolve them.
 
 ## Install
 
-1. Install LeviLamina Client **26.51.5** for Minecraft Bedrock **1.26.51.01**.
-2. Download `PraxisCompanion-v0.1.0-client-windows-x64.zip`.
-3. Extract it directly into `mods/PraxisCompanion/`.
-4. Start Minecraft and press **F10**.
+Use the release's `PraxisCompanion` directory under your launcher's `mods`
+directory while Minecraft is closed. Keep existing config, key assignments,
+worlds, packs and other mods. `config.example.json` is an example, not a file
+to overwrite your saved configuration. F10 opens the GUI on the Module list.
+PDB symbols are an optional separate download and must match the DLL.
+
+The binary package's README and build information identify the exact public
+source commit, tag and DLL/PDB hashes.
 
 ## Build
 
-Requirements: Windows x64, LLVM/Clang-CL, Visual Studio C++ build tools, Python, and xmake.
+See [SOURCE_BUILD.md](SOURCE_BUILD.md). Build from the `companion` project; the
+root `src` contains only shared font and kiero build inputs. The prior flat
+project layout is retired in this version.
 
-```powershell
-xmake repo -u
-xmake f -a x64 -m release -p windows --target_type=client -v -y
-xmake -v -y PraxisCompanionNativeProbe
-xmake -v -y PraxisCompanion
-```
+## Source and licenses
 
-Run the individual test targets in `tests/` before release builds.
+Canonical source: https://github.com/rometet/praxis
 
-See `docs/` for architecture, feature status, hook audit, coexistence notes, and the runtime test plan.
-
-## Source / binary correspondence
-
-Public binary releases identify the immutable source tag, exact source commit SHA, Minecraft target, and DLL SHA-256. The README inside each binary ZIP repeats those values.
-
-See [`RELEASE_POLICY.md`](RELEASE_POLICY.md).
-
-## License
-
-Praxis-owned source is licensed under **GPL-3.0-or-later**. See [`LICENSE`](LICENSE).
-
-Third-party code, fonts, assets, SDKs, and libraries retain their upstream licenses. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and `licenses/`.
+The immutable `v0.1.2-rc.1` tag identifies the release source. The Companion,
+third-party preferred-source and symbol archives are supplied with the
+release. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md),
+[companion/LICENSE_COMBINED.txt](companion/LICENSE_COMBINED.txt) and
+[RELEASE_POLICY.md](RELEASE_POLICY.md).

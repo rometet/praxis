@@ -1,3 +1,11 @@
+# v0.1.2-rc.1 — 2026-10-10
+
+- Japanese UI descriptions with English NoRender options, TimeChanger and WeatherChanger.
+- Separate HUD page; retire InventoryHUD while reserving slot 23 and preserving settings.
+- FreeCamera fresh-press toggle, legacy configuration compatibility, unlimited offset and restoration retained.
+- Current WeatherChanger sky modes; Resource world/gate excluded.
+- Offline validation and matching source/PDB metadata; new binary native testing pending.
+
 # Changelog
 
 ## v0.1.0
