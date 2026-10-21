@@ -14,6 +14,7 @@
 #include "gui/GuiBridge.h"
 #include "gui/HudTools.h"
 #include "map/MapRuntime.h"
+#include "resourcepacks/WorldPackSwitch.h"
 #include "runtime/InformationRuntime.h"
 #include "ll/api/Config.h"
 #include "runtime/ConfigCodec.h"
@@ -357,6 +358,7 @@ void updateWorld(LocalPlayer& player) {
     if (!active) return;
     auto const* dimension = &player.getDimension();
     if (observedPlayer != &player || observedDimension != dimension) {
+        packs::invalidateWorldPackOperation();
         requestCameraCandidateReset();
         cancelUnifiedHotkeyCapture();
         observedPlayer = &player;
@@ -408,6 +410,7 @@ void adjustZoomMouse(short& dx, short& dy) {
 }
 
 void resetWorldRuntime() noexcept {
+    packs::invalidateWorldPackOperation();
     requestCameraCandidateReset();
     cancelUnifiedHotkeyCapture();
     std::lock_guard lock(serviceMutex);

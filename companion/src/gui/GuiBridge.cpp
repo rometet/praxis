@@ -1,4 +1,5 @@
 #include "gui/GuiBridge.h"
+#include "gui/ResourcePackPage.h"
 #include "runtime/Runtime.h"
 #include "core/WeatherChangerDiagnostics.h"
 #include "runtime/InformationRuntime.h"
@@ -867,7 +868,7 @@ void drawLegacyPraxis(void* context) noexcept {
         };
         float longestPageLabel{};
         for (char const* label : {"機能一覧", "設計図", "地図", "HUD", "HUD配置",
-                                 "表示設定", "保存設定", "キー割当", "カメラ", "このModについて"})
+                                 "表示設定", "保存設定", "キー割当", "カメラ", "リソースパック", "このModについて"})
             longestPageLabel = std::max(longestPageLabel, ImGui::CalcTextSize(label).x);
         auto const& style = ImGui::GetStyle();
         float const labelWidth = longestPageLabel + 2 * style.FramePadding.x
@@ -882,6 +883,7 @@ void drawLegacyPraxis(void* context) noexcept {
         pageButton(-1, "機能一覧");
         pageButton(-6, "設計図");
         pageButton(-7, "地図");
+        pageButton(-12, "リソースパック");
         pageButton(-11, "カメラ");
         pageButton(-8, "HUD");
         pageButton(-9, "HUD配置");
@@ -911,7 +913,9 @@ void drawLegacyPraxis(void* context) noexcept {
 
         ImGui::SameLine();
         ImGui::BeginChild("##praxis_content", {0.0f, 0.0f});
-        if (selected == -2) {
+        if (selected == -12) {
+            drawResourcePackPage();
+        } else if (selected == -2) {
             ImGui::TextUnformatted("表示設定");
             ImGui::SeparatorText("フォント");
             auto family = static_cast<LegacyUiFontFamily>(std::clamp(config.guiStyle.fontFamily, 0, 2));

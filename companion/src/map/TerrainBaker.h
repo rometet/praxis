@@ -13,6 +13,7 @@ struct TerrainBake {
     std::vector<Tile> tiles;
     bool caveShade{};
     std::chrono::steady_clock::time_point enqueued{};
+    std::uint64_t resourceEpoch{1};
 };
 struct BakedTerrain {
     Session session;
@@ -25,6 +26,7 @@ struct BakedTerrain {
     std::chrono::steady_clock::time_point published{};
     std::shared_ptr<std::vector<Cell> const> cells;
     std::array<std::shared_ptr<TerrainImage const>,2> images;
+    std::uint64_t resourceEpoch{1};
 };
 // The worker receives copied tiles only. No BlockSource, actor, UI context,
 // borrowed item, GPU device or engine callback is admitted to this queue.
@@ -34,7 +36,7 @@ public:
     ~TerrainBaker();
     TerrainBaker(TerrainBaker const&)=delete;
     void enqueue(TerrainBake);
-    std::shared_ptr<BakedTerrain const> take(Session const&,View const&) const;
+    std::shared_ptr<BakedTerrain const> take(Session const&,View const&,std::uint64_t resourceEpoch=1) const;
     void cancel();
 private:
     mutable std::mutex mutex_;

@@ -1,9 +1,9 @@
 {
-  "name": "${modName}",
-  "entry": "${modFile}",
-  "version": "${modVersion}",
+  "name": "PraxisCompanion",
+  "entry": "PraxisCompanion.dll",
+  "version": "0.1.0",
   "type": "native",
-  "platform": "${modPlatform}",
+  "platform": "client",
   "description": "Standalone Praxis Companion utility mod and GUI for LeviLamina Client 26.51.5",
   "author": "rometet"
 }

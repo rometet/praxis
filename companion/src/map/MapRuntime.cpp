@@ -6,6 +6,8 @@
 #include "map/MapRenderer.h"
 #include "map/MapGraphics.h"
 #include "map/TerrainBaker.h"
+#include "map/MapResourceService.h"
+#include "resourcepacks/WorldPackParticipant.h"
 #ifndef PRAXIS_MAP_HEADLESS_TEST
 #include "ll/api/service/TargetedBedrock.h"
 #include "mc/client/game/ClientInstance.h"
@@ -282,9 +284,29 @@ bool initializeMap(std::filesystem::path const &root) noexcept {
     }
 }
 #ifndef PRAXIS_MAP_HEADLESS_TEST
+namespace {
+void serviceMapResourcesLocked(IClientInstance& client,std::uint64_t generation) {
+    map::serviceMapResourceOwner(packs::praxisWorldParticipant(),generation,
+        reinterpret_cast<std::uintptr_t>(&client),reinterpret_cast<std::uintptr_t>(client.getLevelRenderer()),
+        [] {if(baker)baker->cancel();publication.store({});bakeRevision=0;bakeViewCount=0;nextBake={};},
+        [&] {return client.getRegion()!=nullptr;});
+}
+}
+void serviceMapResources(IClientInstance& client,std::uint64_t generation) noexcept {
+    if(!packs::praxisWorldParticipant().paused())return;
+    try {std::lock_guard lock(mapMutex);serviceMapResourcesLocked(client,generation);}catch(...) {}
+}
 void updateMap(LocalPlayer &player, std::uint64_t generation) noexcept {
     try {
         std::lock_guard lock(mapMutex);
+        auto& participant=packs::praxisWorldParticipant();
+        if(participant.paused()){
+            auto client=ll::service::getClientInstance();
+            if(client&&client->getLocalPlayer()==&player)serviceMapResourcesLocked(*client,generation);
+            return;
+        }
+        packs::WorldPackParticipant::Lease resourceLease(participant,true);
+        if(!resourceLease.admitted())return;
         if (stopped)
             return;
         flushDeferred();
@@ -415,12 +437,13 @@ void updateMap(LocalPlayer &player, std::uint64_t generation) noexcept {
             !std::equal(views.begin(),views.begin()+std::ptrdiff_t(viewCount),bakeViews.begin())||
             bakeCaveShade!=setting->caveShade)) {
             TerrainBake job{activeSession,views,viewCount,cache.revision(),cache.exportTiles(std::size_t(setting->maxTiles))};
+            job.resourceEpoch=resourceLease.resourceEpoch();
             job.caveShade=setting->caveShade;
             baker->enqueue(std::move(job));
             bakeViews=views;bakeViewCount=viewCount;bakeRevision=cache.revision();bakeCaveShade=setting->caveShade;
             nextBake=now+std::chrono::milliseconds(80);
         }
-        auto baked=baker?baker->take(activeSession,mini):nullptr;
+        auto baked=baker?baker->take(activeSession,mini,resourceLease.resourceEpoch()):nullptr;
         auto terrain=baked?baked->cells:std::make_shared<std::vector<Cell> const>();
         auto yaw = std::isfinite(player.getRotation().y) ? player.getRotation().y : 0;
         auto previous = publication.load(std::memory_order_acquire);
@@ -433,6 +456,7 @@ void updateMap(LocalPlayer &player, std::uint64_t generation) noexcept {
             previous->persistenceStatus == ioStatus)
             return; // Diagnostics describe the last publication; unchanged stationary ticks allocate nothing here.
         auto snapshot = std::make_shared<Snapshot>();
+        snapshot->resourceEpoch=resourceLease.resourceEpoch();
         snapshot->session = activeSession;
         snapshot->cells = std::move(terrain);
         if(baked)snapshot->terrainImages=baked->images;
@@ -468,7 +492,7 @@ void updateMap(LocalPlayer &player, std::uint64_t generation) noexcept {
                     .count();
         snapshot->firstAppearanceMilliseconds = firstAppearance;
         snapshot->renderMilliseconds = renderMilliseconds.load();
-        publication.store(std::move(snapshot), std::memory_order_release);
+        if(resourceLease.current())publication.store(std::move(snapshot), std::memory_order_release);
     } catch (std::exception const &e) {
         std::lock_guard lock(mapMutex);
         ioStatus = e.what();
@@ -576,7 +600,10 @@ bool dispatchMapAction(MapAction action) noexcept {
 void drawMapHud(void *context) noexcept {
     if (!context || context != ImGui::GetCurrentContext())
         return;
+    packs::WorldPackParticipant::Lease resourceLease(packs::praxisWorldParticipant());
+    if(!resourceLease.admitted())return;
     auto s = publication.load(std::memory_order_acquire);
+    if(packs::praxisWorldParticipant().paused()||(s&&!packs::resourcePublicationCurrent(s->resourceEpoch)))return;
     auto setting = options.load();
     if (!setting->enabled || !setting->minimap || !s)
         return;
@@ -679,7 +706,9 @@ void drawMapSettings() noexcept {
     }
     if (changed)
         applyOptions(setting);
+    packs::WorldPackParticipant::Lease resourceLease(packs::praxisWorldParticipant());
     auto s = publication.load(std::memory_order_acquire);
+    if(!resourceLease.admitted()||(s&&!resourceLease.current())||(s&&s->resourceEpoch!=resourceLease.resourceEpoch()))s.reset();
     if (!s) {
         ImGui::TextUnformatted("地図を有効にしてワールドに入ると、読込み済みの地形を記録します。");
         ImGui::PopID();

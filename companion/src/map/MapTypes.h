@@ -161,6 +161,7 @@ inline std::shared_ptr<TerrainImage const> rasterTerrain(View const& v,std::span
 }
 struct Snapshot {
     Session session;
+    std::uint64_t resourceEpoch{1};
     std::shared_ptr<std::vector<Cell> const> cells{std::make_shared<std::vector<Cell>>()};
     std::array<std::shared_ptr<TerrainImage const>, 2> terrainImages;
     std::vector<Waypoint> waypoints;

@@ -16,6 +16,8 @@
 #include "mc/world/containers/models/StorageItemContainerModel.h"
 #include "mc/deps/nbt/Int64Tag.h"
 #include "gui/GuiBridge.h"
+#include "resourcepacks/WorldPackParticipant.h"
+#include "map/MapRuntime.h"
 
 #include "ll/api/event/EventBus.h"
 #include "ll/api/event/render/UIRenderEvent.h"
@@ -77,7 +79,7 @@ struct Snapshot {
     std::string itemType;
     std::string collection;
     int index{-1};
-    std::uint64_t tagHash{},revision{};
+    std::uint64_t tagHash{},revision{},resourceEpoch{};
     unsigned long long generation{};
     std::chrono::steady_clock::time_point observed{};
     bool valid{};
@@ -98,14 +100,14 @@ InspectionValue itemInspection(ItemStack const& item) {
 }
 
 bool previewEnabledFor(std::string_view type) {
-    if(!runtimeReady.load(std::memory_order_acquire))return false;
+    if(!runtimeReady.load(std::memory_order_acquire)||packs::praxisWorldParticipant().paused())return false;
     auto family=previewFamily(type);
     return family==PreviewFamily::Shulker?settings()->on(Feature::ShulkerPreview):
         family==PreviewFamily::Bundle&&informationOptions()->bundlePreview
             &&(!informationOptions()->bundleRequireShift||(GetAsyncKeyState(VK_SHIFT)&0x8000)!=0);
 }
 bool inspectionEnabled() {
-    auto o=informationOptions();return runtimeReady.load(std::memory_order_acquire)
+    auto o=informationOptions();return !packs::praxisWorldParticipant().paused()&&runtimeReady.load(std::memory_order_acquire)
         &&(settings()->on(Feature::ShulkerPreview)||o->bundlePreview||o->durabilityInformation||o->advancedTooltips);
 }
 ShulkerPreviewOptions previewOptionsFor(Snapshot const& current) {
@@ -151,7 +153,7 @@ void serviceNativeIconRetirement() {
 }
 ItemStack const* nativePreviewIcon(Snapshot const& current,unsigned slot) {
     std::lock_guard lock(nativeIconMutex);
-    if(slot>=64||nativeRetirementRequested.load()||nativeIconThread!=GetCurrentThreadId()
+    if(!packs::resourcePublicationCurrent(current.resourceEpoch)||slot>=64||nativeRetirementRequested.load()||nativeIconThread!=GetCurrentThreadId()
         ||nativeIconGeneration!=current.generation||current.generation!=worldGeneration.load()||nativeIconRevision!=current.revision||nativeIconHash!=current.tagHash
         ||nativeIconIndex!=current.index||nativeIconCollection!=current.collection)return nullptr;
     return nativeIcons[slot].get();
@@ -224,6 +226,8 @@ LL_TYPE_INSTANCE_HOOK(
     int index
 ) {
     auto result = origin(collectionName, index);
+    packs::WorldPackParticipant::Lease resourceLease(packs::praxisWorldParticipant(),true);
+    if(!resourceLease.admitted())return result;
     {
         std::lock_guard lock(hoverMutex);
         auto base=this->weak_from_this().lock();
@@ -461,7 +465,8 @@ std::shared_ptr<ContainerModel> hotbarBundleModel(LocalPlayer& player,ItemStack 
 bool decode(ItemStack const& box,std::string const& collection,int index,
             unsigned long long generation,std::uint64_t hash,bool fromHotbar,
             ContainerScreenController const* controller,std::shared_ptr<ContainerModel> const& bundleModel) {
-    if(generation!=worldGeneration.load()||!runtimeReady.load()||nativeIconReaders.load()!=0)return false;
+    packs::WorldPackParticipant::Lease resourceLease(packs::praxisWorldParticipant(),true);
+    if(!resourceLease.admitted()||generation!=worldGeneration.load()||!runtimeReady.load()||nativeIconReaders.load()!=0)return false;
     {std::lock_guard lock(nativeIconMutex);if(!previewIconThreadAllowed(nativeIconThread,GetCurrentThreadId()))return false;}
     PreviewNbtBudget nbtBudget;if(box.mUserData&&!budgetTag(*box.mUserData,nbtBudget))return false;
     // Old Praxis retains the native pool throughout an unchanged continuous
@@ -470,7 +475,7 @@ bool decode(ItemStack const& box,std::string const& collection,int index,
     if(previewFamily(box.getTypeName())==PreviewFamily::Shulker) {
         std::scoped_lock lock(snapshotMutex,nativeIconMutex);
         if(snapshot.valid&&snapshot.family==PreviewFamily::Shulker
-           &&snapshot.generation==generation&&snapshot.tagHash==hash
+           &&snapshot.resourceEpoch==resourceLease.resourceEpoch()&&snapshot.generation==generation&&snapshot.tagHash==hash
            &&snapshot.itemType==box.getTypeName()&&snapshot.collection==collection
            &&snapshot.index==index&&snapshot.fromHotbar==fromHotbar
            &&nativeIconGeneration==generation&&nativeIconHash==hash
@@ -482,6 +487,7 @@ bool decode(ItemStack const& box,std::string const& collection,int index,
     }
     std::array<std::unique_ptr<ItemStack>,64> nextIcons;
     Snapshot next;
+    next.resourceEpoch=resourceLease.resourceEpoch();
     next.title=stripMinecraftFormatting(box.getHoverName());
     next.itemType=box.getTypeName();
     next.collection=collection;
@@ -539,7 +545,7 @@ bool decode(ItemStack const& box,std::string const& collection,int index,
         if(entries==0&&!informationOptions()->bundleShowEmpty)return false;
         next.grid=bundleGrid(entries);
     }
-    if(generation!=worldGeneration.load()||!runtimeReady.load())return false;
+    if(!resourceLease.current()||generation!=worldGeneration.load()||!runtimeReady.load())return false;
     std::array<std::unique_ptr<ItemStack>,64> retired;
     {std::lock_guard lock(nativeIconMutex);
         if(nativeIconReaders.load()!=0||!previewIconThreadAllowed(nativeIconThread,GetCurrentThreadId()))return false;
@@ -568,6 +574,8 @@ void drawText(MinecraftUIRenderContext& ui,float x,float y,float width,std::stri
 }
 
 void drawSnapshot(ll::event::AfterUIRenderEvent& event, Snapshot const& current) {
+    packs::WorldPackParticipant::Lease resourceLease(packs::praxisWorldParticipant(),true);
+    if(!resourceLease.admitted()||current.resourceEpoch!=resourceLease.resourceEpoch())return;
     NativeIconReadScope nativeRead;
     auto& ui=event.uiRenderContext();
     auto const size=event.screenView().mSize.get();
@@ -933,6 +941,8 @@ bool drawSnapshotAtTooltip(
     IClientInstance& client,
     Snapshot const& current
 ) {
+    packs::WorldPackParticipant::Lease resourceLease(packs::praxisWorldParticipant(),true);
+    if(!resourceLease.admitted()||current.resourceEpoch!=resourceLease.resourceEpoch())return false;
     NativeIconReadScope nativeRead;
     {std::lock_guard lock(nativeIconMutex);
         if(nativeRetirementRequested.load()||nativeIconThread!=GetCurrentThreadId()
@@ -1086,6 +1096,8 @@ LL_TYPE_INSTANCE_HOOK(
     UIControl& owner,
     int layer
 ) {
+    packs::WorldPackParticipant::Lease resourceLease(packs::praxisWorldParticipant(),true);
+    if(!resourceLease.admitted()){origin(renderContext,client,owner,layer);return;}
     Snapshot current;
     bool preview=false;
     if(informationOptions()->durabilityInformation||informationOptions()->advancedTooltips) {
@@ -1185,6 +1197,8 @@ LL_TYPE_INSTANCE_HOOK(
 }
 
 void refreshExactInspection(ll::event::UIRenderEvent& event) {
+    packs::WorldPackParticipant::Lease resourceLease(packs::praxisWorldParticipant(),true);
+    if(!resourceLease.admitted())return;
     if(!inspectionEnabled()||!inspectionRefreshDue(lastHoverRefresh.load(),GetTickCount64()))return;
     std::shared_ptr<ContainerScreenController> controller;std::string collection;int index=-1;
     {std::lock_guard lock(hoverMutex);
@@ -1233,6 +1247,8 @@ void refreshExactInspection(ll::event::UIRenderEvent& event) {
 void onUiRender(ll::event::AfterUIRenderEvent& event) {
     serviceNativeIconRetirement();
     ensureGuiBackend();
+    packs::WorldPackParticipant::Lease resourceLease(packs::praxisWorldParticipant(),true);
+    if(!resourceLease.admitted())return;
     drawNativeDurabilityHud(event);
     drawNativeOffhandHud(event);
     refreshExactInspection(event);
@@ -1329,6 +1345,8 @@ void onUiRender(ll::event::AfterUIRenderEvent& event) {
 } // namespace
 
 void renderOwnedHudItem(ItemRenderer& renderer,BaseActorRenderContext& context,ItemStack const& item,float x,float y,float scale) {
+    packs::WorldPackParticipant::Lease resourceLease(packs::praxisWorldParticipant(),true);
+    if(!resourceLease.admitted())return;
     struct Guard {
         bool previous{injectingPreview};
         Guard(){injectingPreview=true;}
@@ -1341,6 +1359,7 @@ bool previewItemWithinBudget(ItemStack const& item) noexcept {
     catch(...){return false;}
 }
 bool shulkerPreviewNeeded() noexcept {
+    if(packs::praxisWorldParticipant().paused())return false;
     try {
         if(!inspectionEnabled())return false;
         auto const generation=worldGeneration.load(std::memory_order_acquire);
@@ -1361,6 +1380,8 @@ bool shulkerPreviewNeeded() noexcept {
 }
 
 void drawShulkerPreviewContent(void* context) noexcept {
+    packs::WorldPackParticipant::Lease resourceLease(packs::praxisWorldParticipant());
+    if(!resourceLease.admitted())return;
     if(!context||!runtimeReady.load(std::memory_order_acquire))return;
     ImGuiContext* const target=static_cast<ImGuiContext*>(context);
     ImGuiContext* const previous=ImGui::GetCurrentContext();
@@ -1598,6 +1619,33 @@ void drawShulkerPreviewContent(void* context) noexcept {
     if(previous!=target)ImGui::SetCurrentContext(previous);
 }
 
+void servicePreviewResources(ll::event::UIRenderEvent& event) {
+    auto& participant=packs::praxisWorldParticipant();if(!participant.paused())return;
+    auto& client=event.uiRenderContext().mClient;
+    if(!participant.ownerMatches(worldGeneration.load(),reinterpret_cast<std::uintptr_t>(&client),
+        reinterpret_cast<std::uintptr_t>(client.getLevelRenderer())))return;
+    // Keep old native ItemStacks on their UI owner through uncertain engine
+    // lifetime. Never destroy them from the coordinator/Query/stop thread.
+    using Pool=std::array<std::unique_ptr<ItemStack>,64>;
+    static auto& retainedPools=*new std::vector<std::unique_ptr<Pool>>;
+    {
+        std::lock_guard lock(nativeIconMutex);
+        if(nativeIconReaders.load()||!previewIconThreadAllowed(nativeIconThread,GetCurrentThreadId()))return;
+        if(std::any_of(nativeIcons.begin(),nativeIcons.end(),[](auto const& icon){return bool(icon);})){
+            if(retainedPools.size()>=16)return;
+            auto holder=std::make_unique<Pool>();retainedPools.push_back(std::move(holder));
+            *retainedPools.back()=std::move(nativeIcons);
+        }
+        nativeIconThread=0;nativeIconGeneration=0;nativeIconHash=0;nativeIconRevision=0;
+        nativeIconCollection.clear();nativeIconIndex=-1;nativeRetirementRequested=false;
+    }
+    {std::lock_guard lock(snapshotMutex);snapshot={};durabilityInspection={};}
+    clearExactHover();exactContainerHoverActive=false;exactContainerHoverAt=0;
+    liveItemRenderContext={};nativeDrawReceipt.store({});lastHotbarGeneration=0;
+    bool ready=participant.state()==packs::WorldPackReloadPhase::Reacquiring
+        &&client.getLocalPlayer()&&client.getItemRenderer();
+    participant.ownerServiced(true,participant.resourceEpoch(),true,ready);
+}
 bool installShulkerPreview() {
     if(hoverHookInstalled||unhoverHookInstalled||itemHookInstalled||tooltipHookInstalled||renderListener||beforeRenderListener)return false;
     auto fail=[] { removeShulkerPreview();return false; };
@@ -1612,7 +1660,7 @@ bool installShulkerPreview() {
     try {
         beforeRenderListener=ll::event::EventBus::getInstance().emplaceListener<ll::event::BeforeUIRenderEvent>(
             [](ll::event::BeforeUIRenderEvent& event) {
-                try {serviceNativeIconRetirement();refreshExactInspection(event);}
+                try {servicePreviewResources(event);serviceMapResources(event.uiRenderContext().mClient,worldGeneration.load());serviceNativeIconRetirement();refreshExactInspection(event);}
                 catch(...) {if(!drawExceptionLogged.exchange(true))logGuiError("Preview before-UI inspection threw");}
             });
         if(!beforeRenderListener)return fail();

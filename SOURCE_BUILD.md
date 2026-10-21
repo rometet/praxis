@@ -1,38 +1,30 @@
-# Source build and relink
+# R33 source build and binary correspondence
 
-Target: Minecraft Bedrock 1.26.51.01, LeviLamina Client 26.51.5, Windows x64.
-The release is built with clang-cl 22.1.8, MSVC 14.44.35207 and Windows SDK
-10.0.26100.0, C++20, /MD, /O2 and /utf-8. PDB symbols accompany the release.
+Target: Minecraft Bedrock **1.26.51.01**, LeviLamina Client **26.51.5**, Windows x64.
+The release tag is **v0.1.3-rc.1**; its exact source commit SHA, DLL SHA-256 and PDB SHA-256 appear in the GitHub Release description and downloadable BUILD_INFO.json.
 
-Install xmake, LLVM clang-cl, the MSVC build tools and Windows SDK. From the
-source root, use:
+Prerequisites: Visual Studio 2022 C++ build tools, Windows SDK, clang-cl/LLVM, Python and xmake. The local R33 candidate used these with LeviLamina 26.51.5. To build from the source checkout:
 
-```powershell
-xmake -P companion f -p windows -a x64 -m release --target_type=client
-xmake -P companion build PraxisCompanion
-```
+    Set-Location .\companion
+    xmake f -p windows -a x64 -m release --target_type=client -y
+    xmake b -j 3 PraxisCompanion
 
-Dependencies are resolved by the LeviMC xmake package repository. Pinned
-dependency source references and notices are in `licenses/DEPENDENCY_NOTICES.json`.
-The accompanying preferred-dependency-source ZIP supplies those source files.
-Build or modify the dependencies using their upstream build instructions; the
-application source remains available for modification and relinking.
+Packages resolve from the LeviMC xmake repo. If a local repository clone is corrupt and cannot update, repair that package repository or use a previously verified package cache, rather than changing the tagged sources.
 
-The native SDK recipe runs prelink for client-windows-x64 and links the objects
-and Windows resources, then bedrock_runtime_api.lib, then the SDK/package
-libraries (including SymbolProvider.lib), then system libraries. The generated
-runtime API import library must precede SymbolProvider. The SymbolProvider
-delay-load helper and preload initializer must be the selected owners; the
-stock MSVC delay helper must not replace them. Release validation records this
-link order and checks PE exports/imports plus matching PDB GUID/Age.
+The shipped program is built entirely from companion/src with the companion/xmake.lua project. The source and test trees in this tag are byte-for-byte identical to those of the R33 DLL tested by the user. Two *test-target-only* include directory paths in the public xmake.lua were changed to the already vendored companion/tests/lholo-peer state header (SHA-256 0559e63197779ea6be9ca800e7a73c801abc2a051f3ab71a0ae2616a94a06ce9), replacing local development paths. Production source, target list and compiler inputs remain unchanged.
 
-The 51 registered executable tests and three compile-only probes are declared
-in `companion/xmake.lua`. Build their named targets explicitly; they are not
-default runtime targets. The GUI test uses real ImGui with offline graphics
-fixtures. Offline success does not prove native gameplay or visual correctness.
-Public release validation counts and hashes are in the attached build metadata.
+Local offline tests for the release-candidate code passed:
+- R31 avatar admission: **28** checks
+- R30 native LHolo Glass R5 state prearm: **19**
+- R29 native vanilla editor policy: **39**
+- Native Settings: **266**
+- World Pack engine/native adapter: **1,488**
+- World native task: **50**
+- R27 ON/OFF: **29**
+- Real ImGui synthetic GUI: **12,605,994** checks
 
-The release supplies this public source at its immutable tag, matching source
-and preferred-dependency-source archives, full component/font notices, and
-installation information. It does not bundle Minecraft, the launcher, closed
-source loader tools, user worlds/configs, private development history or caches.
+The public source was separately built and linked using an independent empty object tree. Its generated DLL hash differs from the single tested local DLL because this PE/PDB toolchain is **not asserted to be byte-for-byte reproducible**. The GitHub asset uses the **user-tested R33 DLL**, not the independent recompilation. Correspondence of the actual companion/src source files was verified with per-file SHA-256.
+
+Dependency source references and licenses are recorded in licenses/DEPENDENCY_NOTICES.json and the preferred dependency source archive. Existing sources and font assets already present in this public repo retain their third-party copyright and licensing texts. See LICENSE, companion/LICENSE, companion/LICENSE_COMBINED.txt, THIRD_PARTY_NOTICES.md, licenses/ and src/assets/fonts/.
+
+The native in-world RP feature is only admitted for the named disposable offline clone. Matching LHolo resource ABI v4 is separately required and is not shipped with this Praxis package. Mojang/Microsoft proprietary game files and private PC/world information are not distributed.

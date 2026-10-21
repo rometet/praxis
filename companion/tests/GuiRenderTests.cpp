@@ -1,5 +1,6 @@
 #define PRAXIS_GUI_HEADLESS_TEST
 #include "../src/gui/GuiBridge.cpp"
+#include "resourcepacks/PackBrowser.h"
 #include <imgui_internal.h>
 #include <backends/imgui_impl_dx11.h>
 #include <d3d11.h>
@@ -69,6 +70,26 @@ using Microsoft::WRL::ComPtr;
 void check(bool success, char const* message) {
     ++checks;
     if (!success) throw std::runtime_error(message);
+}
+std::filesystem::path preparePackUiFixture(){
+    auto root=std::filesystem::temp_directory_path()/("PraxisPackUi-"+std::to_string(GetCurrentProcessId())+"-"+std::to_string(GetTickCount64()));
+    check(std::filesystem::create_directory(root),"unique owned pack UI fixture");
+    for(unsigned i=1;i<=2;++i){
+        auto folder=root/std::to_string(i);std::filesystem::create_directories(folder/"textures");
+        std::ofstream file(folder/"manifest.json",std::ios::binary);
+        file<<"{\"format_version\":2,\"header\":{\"name\":\""<<std::string(200,'A')<<i
+            <<"\",\"uuid\":\"00000000-0000-0000-0000-00000000000"<<i
+            <<"\",\"version\":[1,0,0]},\"modules\":[{\"type\":\"resources\",\"uuid\":\"00000000-0000-0000-0000-00000000010"
+            <<i<<"\",\"version\":[1,0,0]}]}";
+        file.close();check(bool(file),"owned UI manifest written");
+    }
+    check(packs::startBrowser()&&packs::requestScan(root),"actual background browser admits UI fixture");
+    auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+    while(packs::browserView().busy&&std::chrono::steady_clock::now()<deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    auto view=packs::browserView();
+    check(!view.busy&&view.catalog->complete&&view.catalog->packs.size()==2,"actual local catalog available to resource page");
+    return root;
 }
 void checkJapaneseGlyphs(ImFont* font) {
     std::vector<unsigned int> missing;
@@ -329,11 +350,15 @@ void renderCase(ImVec2 viewport, int family, float hostScale, bool capture) {
     if(viewport.x==2048 && hostScale==2)std::printf("Japanese shared atlas family=%d width=%d height=%d sources=%d\n",family,atlasWidth,atlasHeight,sourcesBefore);
     check(io.Fonts->Fonts.back()->FindGlyphNoFallback(0x65E5), "Japanese glyph preserved");
     sharedFontRequired.store(true);
-    std::vector<int> pages{-11};
+    std::vector<int> pages{-12,-11};
     for(int page=-9;page<static_cast<int>(cards.size());++page)pages.push_back(page);
     for (int page:pages) {
         legacyGuiState = {}; legacyGuiState.selected = page;
         for (int repeat=0; repeat<3; ++repeat) {
+            if(page==-12&&repeat>0)
+                for(auto* window:context->Windows)
+                    if(std::string_view(window->Name).find("##praxis_content")!=std::string_view::npos)
+                        ImGui::SetScrollY(window,repeat==1?window->ScrollMax.y:0.f);
             if(page>=0 && cards[page].feature==Feature::InventorySort && repeat>0)
                 for(auto* window:context->Windows)
                     if(std::string_view(window->Name).find("##praxis_content")!=std::string_view::npos)
@@ -391,6 +416,16 @@ void renderCase(ImVec2 viewport, int family, float hostScale, bool capture) {
             check(context->CurrentWindowStack.Size==1 && context->FontStack.empty()
                   && context->ColorStack.empty() && context->StyleVarStack.empty(), "Praxis scopes balanced");
             check(context->ErrorCountCurrentFrame==0, "no ImGui errors");
+            if(page==-12){
+                auto* content=activeWindow(context,"##praxis_content");
+                check(content&&content->ScrollMax.y>=std::max(0.f,content->ContentSize.y-content->InnerRect.GetHeight())-1.f,
+                      "pack proposal page preserves vertical scroll access");
+                if(content->DC.CursorMaxPos.x>content->WorkRect.Max.x+1.f)
+                    std::fprintf(stderr,"Pack page width: viewport=%.0fx%.0f font=%d workWidth=%.2f cursorX=%.2f workMax=%.2f\n",
+                        viewport.x,viewport.y,family,content->WorkRect.GetWidth(),content->DC.CursorMaxPos.x,content->WorkRect.Max.x);
+                check(content->DC.CursorMaxPos.x<=content->WorkRect.Max.x+1.f,
+                      "pack proposal text and controls fit compact content width");
+            }
             check(io.Fonts->Sources.Size==sourcesBefore && io.Fonts->TexWidth==atlasWidth && io.Fonts->TexHeight==atlasHeight,
                   "Japanese UI does not enlarge or reload the existing atlas");
             auto* sidebar = ImGui::FindWindowByName("Praxis Client###praxis_client/##praxis_sidebar_50A26670");
@@ -405,7 +440,7 @@ void renderCase(ImVec2 viewport, int family, float hostScale, bool capture) {
                 check(ImGui::GetFontSize()==18.f, "logical font unaffected by host scale");
                 check(ImGui::GetFontSize()+2*ImGui::GetStyle().FramePadding.y<=31.f,
                       "category and page button heights contain font and padding");
-                for (char const* label : {"設計図", "表示設定", "保存設定", "HUD", "HUD配置", "キー割当", "カメラ", "このModについて"})
+                for (char const* label : {"設計図", "表示設定", "保存設定", "HUD", "HUD配置", "キー割当", "カメラ", "リソースパック", "このModについて"})
                     check(ImGui::CalcTextSize(label).x + 2*ImGui::GetStyle().FramePadding.x
                           <= sidebar->WorkRect.GetWidth(), "sidebar label fits button");
             }
@@ -435,6 +470,7 @@ void renderCase(ImVec2 viewport, int family, float hostScale, bool capture) {
                 checkCameraBounds(context);
             auto* data = ImGui::GetDrawData();
             check(data && data->Valid && data->TotalVtxCount>0, "real ImGui draw data emitted");
+            if(capture&&page==-12&&repeat==2)saveRender("praxis-ui-resourcepacks.ppm",data,int(viewport.x),int(viewport.y));
             for (auto* list:data->CmdLists) {
                 for (auto const& v:list->VtxBuffer)
                     check(std::isfinite(v.pos.x)&&std::isfinite(v.pos.y), "finite rendered geometry");
@@ -467,6 +503,69 @@ void renderCase(ImVec2 viewport, int family, float hostScale, bool capture) {
                 saveRender(file.c_str(),data,640,480);
             }
         }
+    }
+    if(family==0&&viewport.x==1280&&hostScale==1){
+        ImGui::NewFrame();ImGui::Begin("Pack apply safety fixture");
+        packs::PackPlan plan;plan.validation=packs::ApplyResult::Valid;plan.currentKnown=true;plan.proposed.push_back({"a",packs::ProposalChange::Enable});
+        drawResourcePackApplyControls(plan);
+        check((context->LastItemData.ItemFlags&ImGuiItemFlags_Disabled)!=0,
+              "actual rebuild control disabled even with a valid proposal and known fixture state");
+        auto* window=ImGui::GetCurrentWindow();
+        ImGui::ActivateItemByID(window->GetID("選択を適用"));
+        ImGui::End();ImGui::Render();++frames;
+        ImGui::NewFrame();ImGui::Begin("Pack apply safety fixture");check(drawResourcePackApplyControls(plan)==ResourcePackAction::None,"default/world backend rejects synthetic Apply");
+        check((context->LastItemData.ItemFlags&ImGuiItemFlags_Disabled)!=0,
+              "synthetic activation cannot enable a native handler");
+        ImGui::End();ImGui::Render();++frames;
+        packs::TitlePackView title;title.available=true;title.current.known=true;
+        ImGui::NewFrame();ImGui::Begin("Pack title apply fixture");drawResourcePackApplyControls(plan,title);
+        window=ImGui::GetCurrentWindow();ImGui::FocusWindow(window);ImGui::ActivateItemByID(window->GetID("選択を適用"));
+        ImGui::End();ImGui::Render();++frames;
+        ImGui::NewFrame();ImGui::Begin("Pack title apply fixture");
+        check(drawResourcePackApplyControls(plan,title)==ResourcePackAction::Apply,"eligible title control dispatches Apply request");
+        check((context->LastItemData.ItemFlags&ImGuiItemFlags_Disabled)!=0,"same-stack reconstruction stays disabled");
+        ImGui::End();ImGui::Render();++frames;
+        title.canReload=true;
+        ImGui::NewFrame();ImGui::Begin("Pack world reload fixture");drawResourcePackApplyControls(plan,title);
+        window=ImGui::GetCurrentWindow();ImGui::FocusWindow(window);ImGui::ActivateItemByID(window->GetID("選択した構成を再読込"));
+        ImGui::End();ImGui::Render();++frames;
+        ImGui::NewFrame();ImGui::Begin("Pack world reload fixture");
+        auto action=drawResourcePackApplyControls(plan,title);
+        check(action==ResourcePackAction::Reload,"actual world reload click preserves distinct Reload intent");
+        packs::TitlePackControl control;title.until=100;control.publish(title);
+        auto catalog=std::make_shared<packs::Catalog>();catalog->complete=true;catalog->generation=1;
+        catalog->packs.push_back({"a","a","uuid","1.0.0","","texture",true});
+        packs::Selection selection;selection.generation=1;selection.order={"a"};
+        check(control.requestResult(catalog,selection,10,action==ResourcePackAction::Reload).accepted,"real clicked Reload reaches copied request queue");
+        auto request=control.take();check(request&&request->reload,"GUI Reload never collapses to Apply on dequeue");
+        ImGui::End();ImGui::Render();++frames;
+        plan.proposed.clear();
+        ImGui::NewFrame();ImGui::Begin("Pack empty proposal fixture");drawResourcePackApplyControls(plan,title);
+        window=ImGui::GetCurrentWindow();ImGui::FocusWindow(window);ImGui::ActivateItemByID(window->GetID("選択を適用"));
+        ImGui::End();ImGui::Render();++frames;
+        ImGui::NewFrame();ImGui::Begin("Pack empty proposal fixture");
+        check(drawResourcePackApplyControls(plan,title)==ResourcePackAction::None,"empty unchanged proposal cannot trigger a native cycle through Apply");
+        ImGui::End();ImGui::Render();++frames;
+        plan.proposed.push_back({"a",packs::ProposalChange::Enable});
+        title.busy=true;
+        ImGui::NewFrame();ImGui::Begin("Pack busy reload fixture");drawResourcePackApplyControls(plan,title);
+        window=ImGui::GetCurrentWindow();ImGui::FocusWindow(window);ImGui::ActivateItemByID(window->GetID("選択した構成を再読込"));
+        ImGui::End();ImGui::Render();++frames;
+        ImGui::NewFrame();ImGui::Begin("Pack busy reload fixture");
+        check(drawResourcePackApplyControls(plan,title)==ResourcePackAction::None,"synthetic Reload cannot bypass busy native admission");
+        ImGui::End();ImGui::Render();++frames;
+    }
+    {
+        packs::PackPlan plan;plan.validation=packs::ApplyResult::Valid;plan.proposed.push_back({"a",packs::ProposalChange::Enable});
+        packs::TitlePackView world;world.inWorld=true;world.available=true;world.current.known=true;world.canReload=true;
+        ImGui::NewFrame();ImGui::Begin("Native Settings world route fixture");
+        check(drawResourcePackApplyControls(plan,world)==ResourcePackAction::None,"world controls wait for explicit input");
+        auto* window=ImGui::GetCurrentWindow();ImGui::FocusWindow(window);ImGui::ActivateItemByID(window->GetID("現在の有効構成を再読込"));
+        ImGui::End();ImGui::Render();++frames;
+        plan.proposed.clear();plan.validation=packs::ApplyResult::StaleCatalog;
+        ImGui::NewFrame();ImGui::Begin("Native Settings world route fixture");
+        check(drawResourcePackApplyControls(plan,world)==ResourcePackAction::Reload,"current-active world reload remains independent of empty or stale edited candidate");
+        ImGui::End();ImGui::Render();++frames;
     }
     testCameraNavigation(context,family==0&&viewport.x==640&&hostScale==2);
     if(family==0&&viewport.x==640&&hostScale==2)testHotkeyGapNavigation(context);
@@ -647,6 +746,7 @@ int main() {
               "reserved slots never form a module card");
         testCameraSingleKeyHotkeyUi();
         for (int family=0; family<3; ++family) testStandaloneFont(family);
+        auto const packUiFixture=preparePackUiFixture();
         for (int family=0; family<3; ++family)
             for (auto viewport : {ImVec2{480,800},ImVec2{640,480},ImVec2{1280,720},
                                   ImVec2{2048,1152},ImVec2{3840,2160}})
@@ -657,6 +757,11 @@ int main() {
         testBridgeRegistrationQuery();
         testGuiOpeningAndHotkeys();
         testHudOrganization();
+        check(packs::stopBrowser(),"offline UI fixture worker retires");
+        check(packUiFixture.is_absolute()&&packUiFixture.filename().string().starts_with("PraxisPackUi-")
+              &&std::filesystem::equivalent(packUiFixture.parent_path(),std::filesystem::temp_directory_path()),
+              "owned fixture cleanup stays inside test TEMP");
+        std::filesystem::remove_all(packUiFixture);
         std::ifstream shared("praxis-ui-modules.ppm",std::ios::binary), standalone("praxis-ui-standalone.ppm",std::ios::binary);
         std::string const sharedPixels{std::istreambuf_iterator<char>{shared},{}};
         std::string const standalonePixels{std::istreambuf_iterator<char>{standalone},{}};

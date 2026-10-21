@@ -34,9 +34,28 @@ table.insert(integrated_sources, "src/platform/InventorySnapshot.cpp")
 table.insert(integrated_sources, "src/platform/HandRestock.cpp")
 table.insert(integrated_sources, "src/platform/InventoryActions.cpp")
 
--- Optional read-only, title-only resource reload observation; no pack setter/UI.
-table.insert(integrated_sources, "src/resourcepacks/PassiveReloadObserver.cpp")
-table.insert(integrated_sources, "src/resourcepacks/PassiveReloadTraceRuntime.cpp")
+-- Existing local page plus optional fresh-title normal application route.
+table.insert(integrated_sources, "src/resourcepacks/PackCatalog.cpp")
+table.insert(integrated_sources, "src/resourcepacks/PackBrowser.cpp")
+table.insert(integrated_sources, "src/gui/ResourcePackPage.cpp")
+table.insert(integrated_sources, "src/resourcepacks/TitlePackSwitch.cpp")
+table.insert(integrated_sources, "src/resourcepacks/WorldPackSwitch.cpp")
+table.insert(integrated_sources, "src/resourcepacks/WorldPackParticipant.cpp")
+
+target("PraxisCompanionResourcePackTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/ResourcePackTests.cpp", "src/resourcepacks/PackCatalog.cpp", "src/resourcepacks/PackBrowser.cpp")
+    add_packages("levilamina")
+target_end()
+target("PraxisCompanionPackPlanTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/PackPlanTests.cpp", "src/resourcepacks/PackCatalog.cpp")
+    add_packages("levilamina")
+target_end()
 
 target("PraxisCompanionInventoryExtensionTests")
     set_kind("binary")
@@ -101,7 +120,9 @@ target("PraxisCompanionGuiRenderTests")
     set_default(false)
     add_includedirs("src")
     add_files("src/gui/HudTools.cpp", "tests/GuiRenderTests.cpp", "src/gui/LegacyUiFont.cpp", "src/resources/praxis_companion.rc")
+    add_files("src/gui/ResourcePackPage.cpp", "src/resourcepacks/PackCatalog.cpp", "src/resourcepacks/PackBrowser.cpp")
     add_packages("imgui")
+    add_packages("levilamina")
     add_syslinks("user32", "d3d11", "dxgi", "d3dcompiler")
 target_end()
 
@@ -314,7 +335,7 @@ target("PraxisCompanion")
     set_basename("PraxisCompanion")
     set_symbols("debug")
     add_rules("@levibuildscript/linkrule")
-    add_rules("@levibuildscript/modpacker", {modVersion = "0.1.2-rc.1", modPlatform = "client"})
+    add_rules("@levibuildscript/modpacker", {modVersion = "0.1.0", modPlatform = "client"})
     add_includedirs("src", "../src/vendor/kiero")
     add_files("src/Mod.cpp", "src/runtime/Runtime.cpp", "src/MemoryOperators.cpp")
     add_files("src/platform/Native.cpp", "src/platform/TimeChanger.cpp", "src/platform/WeatherChanger.cpp", "src/platform/EffectPatches.cpp")
@@ -340,8 +361,6 @@ target("PraxisCompanion")
         for _, name in ipairs({"LICENSE", "THIRD_PARTY_NOTICES.md"}) do
             os.cp(path.join(os.projectdir(), "..", name), path.join(package_dir, name))
         end
-        os.cp(path.join(os.projectdir(), "LICENSE"), path.join(package_dir, "MPL-2.0.txt"))
-        os.cp(path.join(os.projectdir(), "..", "licenses"), package_dir)
     end)
 target_end()
 
@@ -459,11 +478,69 @@ for _, test in ipairs({"TaskLineage", "TaskOutcome", "PassiveReloadTrace"}) do
     target_end()
 end
 
-target("PraxisCompanionPassiveObserverTests")
+-- Formal identity getter/type contract only; no live reads or native calls.
+target("PraxisCompanionResourcePackSnapshotTypedProbe")
+    set_kind("object")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/ResourcePackSnapshotTypedProbe.cpp")
+    add_packages("levilamina")
+target_end()
+
+target("PraxisCompanionTitlePackSwitchTests")
     set_kind("binary")
     set_default(false)
-    add_includedirs("src", "tests")
-    add_files("tests/PassiveObserverTests.cpp")
+    add_includedirs("src")
+    add_files("tests/TitlePackSwitchTests.cpp", "src/resourcepacks/PackCatalog.cpp")
+    add_packages("levilamina")
+target_end()
+
+target("PraxisCompanionTitlePackNativeProbe")
+    set_kind("object")
+    set_default(false)
+    add_includedirs("src")
+    add_files("src/resourcepacks/TitlePackSwitch.cpp", "tests/WorldPackWindowsApiProbe.cpp")
+    add_packages("levilamina")
+target_end()
+
+target("PraxisCompanionTitleNativeAdapterTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/TitleNativeAdapterTests.cpp", "src/resourcepacks/PackCatalog.cpp")
+    add_packages("levilamina")
+target_end()
+
+target("PraxisCompanionWorldPackTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/WorldPackTests.cpp", "src/resourcepacks/PackCatalog.cpp", "src/resourcepacks/WorldPackParticipant.cpp")
+    add_packages("levilamina")
+target_end()
+
+target("PraxisCompanionWorldNativeTaskReceiptTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/WorldNativeTaskReceiptTests.cpp")
+    add_packages("levilamina")
+target_end()
+
+target("PraxisCompanionWorldPackNativeProbe")
+    set_kind("object")
+    set_default(false)
+    add_includedirs("src")
+    add_files("src/resourcepacks/WorldPackSwitch.cpp", "tests/WorldPackWindowsApiProbe.cpp")
+    add_packages("levilamina")
+target_end()
+
+-- Actual LHolo v3 state/export fixtures are isolated from the product DLL.
+target("PraxisCompanionWorldPeerCompatibilityTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("tests/lholo-peer", "src")
+    add_files("tests/WorldPeerCompatibilityTests.cpp", "tests/lholo-peer/resourcepacks/WorldPackReloadExport.cpp", "src/resourcepacks/WorldPackParticipant.cpp")
 target_end()
 
 target("PraxisCompanionFreeCameraOffsetTests")
@@ -472,4 +549,94 @@ target("PraxisCompanionFreeCameraOffsetTests")
     add_includedirs("src")
     add_files("tests/FreeCameraOffsetTests.cpp")
     add_packages("levilamina")
+target_end()
+
+-- Native Settings scope and existing participant transitions, offline only.
+target("PraxisCompanionNativeSettingsPackScopeTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/NativeSettingsPackScopeTests.cpp")
+target_end()
+
+
+-- R23 native terrain atlas completion/timeout regression policy.
+target("PraxisCompanionLocalNativeAtlasApplyTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/LocalNativeAtlasApplyTests.cpp")
+target_end()
+
+-- R24 strictly scoped world-plus-native owner admission tests.
+target("PraxisCompanionR24CloneNativeAdmissionTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/R24CloneNativeAdmissionTests.cpp")
+target_end()
+
+-- R25 completion admission observability and idempotent Recovery Stop.
+target("PraxisCompanionR25NativeEntryAuditTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/R25NativeEntryAuditTests.cpp")
+target_end()
+
+-- R26 regression checks: native pre-arm before LHolo's icon atlas mutation.
+target("PraxisCompanionR26NativeActiveReceiptTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/R26NativeActiveReceiptTests.cpp")
+target_end()
+
+-- This target compiles the *exact* LHolo source named by installed LHolo.pdb.
+target("PraxisCompanionR26LHoloNativeOrderTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("tests/lholo-peer", "src")
+    add_files("tests/R26LHoloNativeOrderTests.cpp")
+target_end()
+
+-- Strict ON/OFF of only one registered local RP in the disposable test world.
+target("PraxisCompanionR27OnOffTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/R27OnOffTests.cpp", "src/resourcepacks/PackCatalog.cpp")
+    add_packages("levilamina")
+target_end()
+
+-- R28: normal block, item, entity and resource-pack catalog classification.
+target("PraxisCompanionR28GeneralTextureCatalogTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/R28GeneralTextureCatalogTests.cpp", "src/resourcepacks/PackCatalog.cpp")
+    add_packages("levilamina")
+target_end()
+
+target("PraxisCompanionR29VanillaSettingsTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/R29VanillaSettingsTests.cpp")
+
+-- R30: run against the EXACT Glass R5+resource-v4 State implementation
+-- installed with Praxis, not an invented mock of the participant API.
+target("PraxisCompanionR30VanillaPrearmTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("tests/lholo-peer", "src")
+    add_files("tests/R30VanillaPrearmTests.cpp")
+target_end()
+
+-- R31 scoped and one-shot client player actor renderer reload policy.
+target("PraxisCompanionR31AvatarRebindTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/R31AvatarRebindTests.cpp")
 target_end()

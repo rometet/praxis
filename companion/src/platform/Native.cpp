@@ -1,4 +1,5 @@
-#include "resourcepacks/PassiveReloadObserver.h"
+#include "resourcepacks/TitlePackSwitch.h"
+#include "resourcepacks/WorldPackSwitch.h"
 #include "platform/Native.h"
 #include "platform/EffectPatches.h"
 #include "core/AntiEffectPolicy.h"
@@ -366,14 +367,16 @@ bool installNative(){
    |featureRegistryBit(static_cast<unsigned>(Feature::Freelook)));
   if(freeCameraReady)availableFeatures.fetch_or(featureRegistryBit(static_cast<unsigned>(Feature::FreeCamera)));
  if(!nativeLifetime.open())return false;
- packs::installPassiveReloadObserver();
+ if(!packs::installTitlePackSwitch())logGuiInfo("Resourcepack title apply backend unavailable; local proposal UI retained");
+ if(!packs::installWorldPackSwitch())logGuiInfo("Resourcepack world apply backend unavailable; local proposal UI retained");
  return true;
 }
 bool beginNativeStop()noexcept{
  // Keep owner callbacks admitted until camera restoration and owned releases
  // drain. Closing the lease first would strand a wrong-thread FreeCamera stop.
  if(!cameraCandidateCleanup())return false;
- bool const passiveObserverStopped=packs::stopPassiveReloadObserver();
+ bool const worldPackStopped=packs::stopWorldPackSwitch();
+ bool const titlePackStopped=packs::stopTitlePackSwitch();
  nativeLifetime.close();
  weatherNativeAdmission.store(false,std::memory_order_seq_cst);
  visualNativeAdmission.store(false,std::memory_order_seq_cst);
@@ -381,7 +384,7 @@ bool beginNativeStop()noexcept{
   setFreeCameraMovementBackendAvailable(false);
  // No blocking wait: stop may be called from an origin/GUI callback itself.
  // A non-quiescent stop retains all feature resources for process exit.
- return passiveObserverStopped&&nativeLifetime.readers()==0
+ return worldPackStopped&&titlePackStopped&&nativeLifetime.readers()==0
   &&weatherNativeReaders.load(std::memory_order_seq_cst)==0
   &&visualNativeReaders.load(std::memory_order_seq_cst)==0;
 }

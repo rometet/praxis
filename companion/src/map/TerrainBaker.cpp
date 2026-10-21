@@ -1,4 +1,5 @@
 #include "map/TerrainBaker.h"
+#include "resourcepacks/WorldPackParticipant.h"
 namespace praxis::companion::map {
 TerrainBaker::TerrainBaker():worker_([this]{run();}){}
 TerrainBaker::~TerrainBaker() {
@@ -6,6 +7,7 @@ TerrainBaker::~TerrainBaker() {
     condition_.notify_all();worker_.join();
 }
 void TerrainBaker::enqueue(TerrainBake job) {
+    if(!packs::resourcePublicationCurrent(job.resourceEpoch))return;
     if(!job.session.valid()||job.viewCount<1||job.viewCount>2||job.tiles.size()>1024)return;
     job.enqueued=std::chrono::steady_clock::now();
     {std::lock_guard lock(mutex_);if(stopping_)return;pending_=std::move(job);}
@@ -14,9 +16,9 @@ void TerrainBaker::enqueue(TerrainBake job) {
 void TerrainBaker::cancel() {
     std::lock_guard lock(mutex_);pending_.reset();result_.reset();++epoch_;
 }
-std::shared_ptr<BakedTerrain const> TerrainBaker::take(Session const& s,View const& v) const {
+std::shared_ptr<BakedTerrain const> TerrainBaker::take(Session const& s,View const& v,std::uint64_t resourceEpoch) const {
     std::lock_guard lock(mutex_);
-    if(!result_||result_->session!=s||result_->layer!=v.layer
+    if(!result_||result_->resourceEpoch!=resourceEpoch||!packs::resourcePublicationCurrent(resourceEpoch)||result_->session!=s||result_->layer!=v.layer
        ||(v.layer==Layer::Cave&&(result_->caveTop!=v.top||result_->caveBottom!=v.bottom)))return {};
     return result_;
 }
@@ -29,11 +31,14 @@ void TerrainBaker::run() {
             if(stopping_)return;
             epoch=epoch_;job=std::move(*pending_);pending_.reset();
         }
+        packs::WorldPackParticipant::AsyncLease resourceLease(packs::praxisWorldParticipant(),job.resourceEpoch);
+        if(!resourceLease.admitted())continue;
         try {
             auto start=std::chrono::steady_clock::now();
             Cache values(1024);values.begin(job.session);
             for(auto const& tile:job.tiles)values.restore(job.session,tile);
             auto out=std::make_shared<BakedTerrain>();
+            out->resourceEpoch=job.resourceEpoch;
             out->queueMilliseconds=std::chrono::duration<double,std::milli>(start-job.enqueued).count();
             out->session=job.session;out->layer=job.views[0].layer;
             out->caveTop=job.views[0].top;out->caveBottom=job.views[0].bottom;out->revision=job.revision;out->caveShade=job.caveShade;
@@ -43,7 +48,7 @@ void TerrainBaker::run() {
             out->published=std::chrono::steady_clock::now();
             std::lock_guard lock(mutex_);
             // cancel/retire may have occurred while this value-only bake ran.
-            if(!stopping_&&epoch==epoch_)result_=std::move(out);
+            if(!stopping_&&epoch==epoch_&&resourceLease.current())result_=std::move(out);
         } catch(...) { /* Retain the previous complete value image on allocation failure. */ }
     }
 }

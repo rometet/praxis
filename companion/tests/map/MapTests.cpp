@@ -3,6 +3,7 @@
 #include "map/chiyan/TerrainPalette.h"
 #include "map/TickValueCache.h"
 #include "map/TerrainBaker.h"
+#include "resourcepacks/WorldPackParticipant.h"
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -1178,6 +1179,40 @@ int main() {
             CHECK(!io.enqueue({s,FileKind::RegionTerrain,0,false,{},other}));
             io.stopAndJoin();
             CHECK(!io.enqueue({s,FileKind::RegionTerrain,0,false,{},region}));
+        });
+        test("actual terrain worker rejects paused and old resource epochs preserves copied cache", [] {
+            namespace packs = praxis::companion::packs;
+            auto& provider = packs::praxisWorldParticipant();
+            TerrainBaker baker; Cache cache; auto s = session(); cache.begin(s);
+            CHECK(cache.apply(s,tileKey(0,0,0,Layer::Surface),0,0,sample(),1));
+            View view{0,0,16}; TerrainBake job{s,{view,view},1,1,cache.exportTiles(1)};
+            auto wait = [&](std::uint64_t epoch) {
+                std::shared_ptr<BakedTerrain const> result;
+                auto deadline = std::chrono::steady_clock::now()+std::chrono::seconds(5);
+                while(!result&&std::chrono::steady_clock::now()<deadline) {
+                    result=baker.take(s,view,epoch);std::this_thread::yield();
+                }
+                return result;
+            };
+            baker.enqueue(job);auto old=wait(1);CHECK(old&&old->resourceEpoch==1&&old->cells->size()==1);
+            packs::WorldPackReloadRequest request;request.token=1;request.world=1;request.client=2;request.renderer=3;request.oldEpoch=1;request.nextEpoch=2;
+            packs::WorldPackReloadReply reply;
+            CHECK(provider.command(packs::WorldPackReloadCommand::Pause,&request,&reply)==1);
+            CHECK(!baker.take(s,view,1));baker.enqueue(job);baker.cancel();
+            auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
+            while(!provider.quiescent()&&std::chrono::steady_clock::now()<deadline)std::this_thread::yield();
+            CHECK(provider.quiescent());
+            provider.ownerServiced(true,1,true,false);provider.ownerServiced(false,1,true,false);
+            CHECK(provider.command(packs::WorldPackReloadCommand::Prepare,&request,&reply)==1);
+            CHECK(provider.command(packs::WorldPackReloadCommand::BeginNative,&request,&reply)==1);
+            CHECK(provider.command(packs::WorldPackReloadCommand::NativeSettled,&request,&reply)==1);
+            provider.ownerServiced(true,2,true,true);provider.ownerServiced(false,2,true,true);
+            CHECK(provider.command(packs::WorldPackReloadCommand::Query,&request,&reply)==1&&reply.phase==packs::WorldPackReloadPhase::Ready);
+            CHECK(provider.command(packs::WorldPackReloadCommand::Resume,&request,&reply)==1);
+            baker.enqueue(job);CHECK(!baker.take(s,view,1)&&!baker.take(s,view,2));
+            job.resourceEpoch=2;job.revision=2;baker.enqueue(job);auto fresh=wait(2);
+            CHECK(fresh&&fresh->resourceEpoch==2&&fresh->revision==2&&fresh->cells->size()==1);
+            CHECK(old->cells->size()==1&&cache.exportTiles(1).size()==1); // Retained copied values and persistence identity are unchanged.
         });
         std::cout << "PraxisCompanionMapTests: " << passed << " tests, " << assertions << " checks PASS\n";
         return 0;
