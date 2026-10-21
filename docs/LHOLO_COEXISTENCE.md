@@ -1,3 +1,5 @@
+> Historical v0.1.0 document. See the current README, SOURCE_BUILD.md and release metadata for v0.1.2-rc.1.
+
 # LHolo coexistence
 
 LHolo is the optional schematic/projection/placement mod. PraxisCompanion is the standalone utility mod. When LHolo is absent, Companion uses its own graphics/input host based on the old Praxis D3DHook. When LHolo is present with a compatible bridge, Companion installs no second graphics/WndProc hook.

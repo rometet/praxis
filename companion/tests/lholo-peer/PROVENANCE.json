@@ -1,0 +1,31 @@
+{
+  "source_baseline_commit": "2d54a070f69d0efa15c63734b6d6e735bf364a1c",
+  "source_baseline_tree": "3e84d5058907f1c2c5b47feda7c4a268886004b7",
+  "source_worktree_state": "Uncommitted renderer-retarget change to WorldPackReloadState.h on the baseline commit; copied production headers are exact worktree bytes, not a committed tree.",
+  "source_header_patch_sha256": "e0df9be293bac83f9f15fb8e40028208153e9d971d566a4eabd0156acaf1fef3",
+  "purpose": "Exact immutable actual LHolo ABI4 State + C exports used by the joined CPU fixture. Normal native settlement/rebuild are explicit doubles, not loader/GPU/runtime proof.",
+  "files": [
+    {
+      "original_path": "src/resourcepacks/WorldPackReloadApi.h",
+      "fixture_path": "companion/tests/lholo-peer/resourcepacks/WorldPackReloadApi.h",
+      "bytes": 2279,
+      "sha256": "8510e3d1954d0972f042df89a5e69f451d2587a6040a69677d922cccb175186f",
+      "git_blob": "3cfbdc0c26effcc9d450743d2974077b45d73550"
+    },
+    {
+      "original_path": "src/resourcepacks/WorldPackReloadState.h",
+      "fixture_path": "companion/tests/lholo-peer/resourcepacks/WorldPackReloadState.h",
+      "bytes": 21366,
+      "sha256": "0559e63197779ea6be9ca800e7a73c801abc2a051f3ab71a0ae2616a94a06ce9",
+      "git_blob": "d77ff454bc9de872285ddd72e90438a05a7105da"
+    },
+    {
+      "original_path": "src/resourcepacks/WorldPackReloadExport.cpp",
+      "fixture_path": "companion/tests/lholo-peer/resourcepacks/WorldPackReloadExport.cpp",
+      "bytes": 920,
+      "sha256": "1f843f954bd7f733acd3148eed260b6a9d4ef1f3aec57ba1243915e12d5ebf93",
+      "git_blob": "8029c22cd5c61570c9a2752968a603ea11b292db"
+    }
+  ],
+  "source_change": "NativeSettled-only same-attempt renderer retarget with physical pending-owner validation; ABI4/export unchanged"
+}

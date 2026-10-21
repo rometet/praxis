@@ -1,3 +1,5 @@
+> Historical v0.1.0 document. See the current README, SOURCE_BUILD.md and release metadata for v0.1.2-rc.1.
+
 # Feature port matrix
 
 This is the current evidence for this branch. `COMPILES` means the exact Fake Headers compile and link; it does not mean Minecraft behavior was observed.

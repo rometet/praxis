@@ -49,11 +49,11 @@ namespace kiero {
             }
 
             g_methodsTable = (void**)*(uintptr_t**)swapChain;
-
+            
             swapChain->Release();
             device->Release();
             context->Release();
-        }
+        } 
         else if (renderType == RenderType::D3D12) {
             HMODULE d3d12 = GetModuleHandleA("d3d12.dll");
             HMODULE dxgi = GetModuleHandleA("dxgi.dll");
