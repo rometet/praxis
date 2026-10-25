@@ -71,8 +71,8 @@ int main(int argc,char** argv) {
             /("PraxisCameraIntegrationConfig-"+std::to_string(GetCurrentProcessId())+"-"+std::to_string(GetTickCount64()));
         std::filesystem::create_directories(root/"profiles");
         std::cout<<"Isolated fixture: "<<root.string()<<'\n';
-        check(featureCount==27&&static_cast<unsigned>(Feature::Freelook)==20&&static_cast<unsigned>(Feature::FreeCamera)==21,"camera sparse slot ABI20/21 retained with appended action26");
-        check(ownedFeatureSlotMask==0x05307fffu&&featureRegistryMask(featureCount)==0x7ffffffu,"sparse ownership preserves reserved22/25 and32-bit tails");
+        check(featureCount==28&&static_cast<unsigned>(Feature::Freelook)==20&&static_cast<unsigned>(Feature::FreeCamera)==21,"camera sparse slot ABI20/21 retained with appended action27");
+        check(ownedFeatureSlotMask==0x0d307fffu&&featureRegistryMask(featureCount)==0x0fffffffu,"sparse ownership preserves reserved22/25 and32-bit tails");
         check(featureProfileFields.size()>=22&&featureProfileFields.size()<=32,"all typed owners fit field history");
         for(unsigned i=0;i<4;++i)check(std::string_view(featureProfileFields[13+i].field)==cameraFields[i]
             &&featureProfileFields[13+i].slot==20+i/2,"camera descriptors append without shifting existing history");

@@ -23,7 +23,15 @@ int main() {
     check(boundedInspectorText(std::string(4097,'a')).empty());check(boundedInspectorText(std::string(4096,'a')).size()==4096);
     InformationSnapshot sample;sample.valid=true;sample.generation=15;sample.observedMs=100;sample.inspector=s;
     check(informationCurrent(sample,15,1100));check(!informationCurrent(sample,16,100));check(!informationCurrent(sample,15,1101));check(!informationCurrent(sample,15,99));
-    config.informationOptions.inspector=o;check(informationLinesJa(sample,config.informationOptions).size()>=5);
+    config.informationOptions.inspector=o;
+    // The compare inspector still captures and copies complete state, but no
+    // diagnostic/SNBT rows may leak into the gameplay Information HUD.
+    check(informationLinesJa(sample,config.informationOptions).empty());
+    sample.values[0]="1, 2, 3";
+    auto hudRows=informationLinesJa(sample,config.informationOptions);
+    check(hudRows.size()==1);
+    check(hudRows.front().find("1, 2, 3")!=std::string::npos);
+    check(hudRows.front().find("minecraft:stone")==std::string::npos);
     check(advancedItemText("minecraft:stone",0,64,0,0)=="ID: minecraft:stone\n補助値: 0 / 個数: 64");
     check(advancedItemText("minecraft:pickaxe",0,1,5,100).ends_with("95 / 100"));
     check(advancedItemText("minecraft:pickaxe",0,1,101,100).ends_with("0 / 100"));

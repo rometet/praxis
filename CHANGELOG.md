@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.1.4-rc.1 — 2026-10-26 — Praxis R34 Flexible Placement
+
+- Three Tweakeroo-inspired modes: Rotation (R), Offset (G), Adjacent (H), including combinations, toggled with P.
+- Fixed G/Freelook key collision that restored the prior view orientation when G was released.
+- Improved block support selection and native placement-hit normalization, plus floor-stair and interactive click handling.
+- Added compact GUI/HUD refinements, block-state inspection comparison and standalone Lamium coexistence tools.
+- Flexible placement is a Bedrock client-side implementation requiring compatible LHolo ABI v2; Tweakeroo Java parity and all BDS placement cases are not guaranteed.
+- Preserved R33 resource-pack restrictions: only the named disposable offline clone supports experimental native hot reload.
+- Automated checks passed: 529 flexible policy, 2515 stair policy (zero failures), 282 hotkey checks, 6 LHolo ABI checks. The user confirmed the fixed G-key camera behavior in-game.
+
+
 ## v0.1.3-rc.1 — 2026-10-21 — Praxis R33 experimental native resource reload
 
 - Integrated the native Minecraft Settings → Global Resources single-pack toggle route for a disposable offline test world.

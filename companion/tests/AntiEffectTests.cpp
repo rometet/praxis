@@ -8,7 +8,7 @@
 using namespace praxis::companion;
 int main() {
     unsigned checks{};auto check=[&](bool v){++checks;if(!v)throw std::runtime_error("AntiEffect boundary");};
-    check(unsigned(Feature::AntiEffect)==24);check(featureCount==27);RuntimeConfig config;check(!config.antiEffect);
+    check(unsigned(Feature::AntiEffect)==24);check(featureCount==28);RuntimeConfig config;check(!config.antiEffect);
     for(unsigned flags=0;flags<128;++flags) {
         config.antiEffect=flags&1;config.antiEffectOptions.fire=flags&2;config.antiEffectOptions.portal=flags&4;
         config.noRender.enabled=flags&8;config.noRender.passes[unsigned(RenderPass::FireOverlay)]=flags&16;
@@ -26,7 +26,7 @@ int main() {
     full["antiEffectOptions"]["futureDarkness"]=nullptr;full["keybinds"]=std::vector<int>(32,85);full["keybindModifiers"]=std::vector<unsigned>(32,7);
     full["favoriteModules"]=UINT32_MAX;RuntimeConfig decoded;check(decodeRuntimeConfig(full,decoded));check(decoded.antiEffect);
     auto typed=ll::reflection::serialize<ConfigJson>(decoded).value();overlayOwnedConfig(full,typed);check(full["antiEffectOptions"]["futureDarkness"].is_null());
-    for(unsigned i:{15u,16u,17u,18u,19u,22u,25u,27u,28u,29u,30u,31u}) {check(!(ownedFeatureSlotMask&featureRegistryBit(i)));check(full["keybinds"][i]==85&&full["keybindModifiers"][i]==7);}
+    for(unsigned i:{15u,16u,17u,18u,19u,22u,25u,28u,29u,30u,31u}) {check(!(ownedFeatureSlotMask&featureRegistryBit(i)));check(full["keybinds"][i]==85&&full["keybindModifiers"][i]==7);}
     auto before=full;auto raw=typed;raw["antiEffect"]=false;raw["inventoryHud"]=false;
     overlayOwnedConfig(full,raw,false,ownedFeatureSlotMask&~(featureRegistryBit(23)|featureRegistryBit(24)));
     check(full["antiEffect"]==before["antiEffect"]);check(full["antiEffectOptions"]==before["antiEffectOptions"]);check(full["inventoryHudOptions"]==before["inventoryHudOptions"]);

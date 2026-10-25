@@ -26,6 +26,42 @@ int main() {
         check(hotkeyConflict({'K',2,1},{'K',lholoModifiersToPraxis(4),1}),"Praxis Shift and LHolo Shift conflict");
         check(!hotkeyConflict({'K',2,1},{'K',lholoModifiersToPraxis(2),1}),"Praxis Shift and LHolo Alt remain distinct");
         check(hotkeyConflict({'K',4,1},{'K',lholoModifiersToPraxis(2),1}),"Praxis Alt and LHolo Alt conflict");
+        // Regression: the user's actual profile had Freelook=G and Offset=G.
+        // Without precedence, Freelook detaches the view then snaps it back
+        // when G is released, also stealing the held Offset input.
+        constexpr HotkeyChord rotation{'R',anyModifiers,1};
+        constexpr HotkeyChord offset{'G',anyModifiers,1};
+        constexpr HotkeyChord adjacent{'H',anyModifiers,1};
+        auto conflict=[&](HotkeyChord camera, bool enabled) {
+            return cameraFlexiblePlacementHotkeyConflict(camera,enabled,rotation,offset,adjacent);
+        };
+        check(conflict({'G',cameraHotkeyModifiers(8),1},true),
+            "Freelook G must never steal Offset G");
+        check(conflict({'R',anyModifiers,1},true),
+            "Rotation wins over the camera hotkey");
+        check(conflict({'H',anyModifiers,1},true),
+            "Adjacent wins over the camera hotkey");
+        check(!conflict({'G',anyModifiers,1},false),
+            "Freelook G still operates when Flexible Placement is disabled");
+        check(!conflict({'J',anyModifiers,1},true),
+            "a distinct Freelook hotkey remains usable");
+        check(conflict({'G',2,1},true),
+            "camera Shift+G overlaps placement Any+G");
+        check(!cameraFlexiblePlacementHotkeyConflict({'G',2,1},true,
+            {'R',0,1},{'G',0,1},{'H',0,1}),
+            "camera Shift+G is independent of placement exact unmodified G");
+        check(cameraFlexiblePlacementHotkeyConflict({'G',anyModifiers,1},true,
+            {'R',2,1},{'G',2,1},{'H',2,1}),
+            "camera any-modifier G overlaps shifted placement G");
+        check(!cameraFlexiblePlacementHotkeyConflict({'G',4,1},true,
+            {'R',2,1},{'G',2,1},{'H',2,1}),
+            "camera Alt+G does not overlap shifted placement G");
+        check(!cameraFlexiblePlacementHotkeyConflict({0,anyModifiers,1},true,
+            rotation,offset,adjacent),
+            "unbound camera cannot conflict");
+        check(!cameraFlexiblePlacementHotkeyConflict({'G',anyModifiers,2},true,
+            rotation,offset,adjacent),
+            "unrelated input contexts do not conflict");
         check(modifiersMatch(anyModifiers,2)&&modifiersMatch(anyModifiers,4)&&hotkeyModifierPrefix(8)=="Any+","legacy Any remains unchanged");
         for(unsigned wanted=0;wanted<9;++wanted)for(unsigned actual=0;actual<8;++actual) {
             check(cameraModifiersMatch(wanted,actual)==(wanted==0||wanted==8||wanted==actual),"camera-only single-key requirement; explicit chords preserved");

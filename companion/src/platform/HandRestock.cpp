@@ -341,6 +341,10 @@ void tickHandRestock(LocalPlayer& player) noexcept {
 }
 void resetHandRestock() noexcept {std::lock_guard lock(mutex);cancel();clearObservation();diagnosticStages=0;faulted=false;observedSwapKey=0;observedSwapModifiers=0;swapHeld=false;}
 void requestHandRestockReset() noexcept {resetRequested=true;}
+bool handRestockPlacementBusy() noexcept {
+    std::lock_guard lock(mutex);
+    return bool(pending) || insideUse;
+}
 void serviceHandRestock() noexcept {
     std::unique_lock lock(mutex,std::try_to_lock);if(!lock.owns_lock())return;
     try {

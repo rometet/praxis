@@ -18,6 +18,18 @@ inline constexpr unsigned cameraHotkeyModifiers(unsigned modifiers) noexcept {
 inline constexpr bool cameraModifiersMatch(unsigned wanted, unsigned actual) noexcept {
     return modifiersMatch(cameraHotkeyModifiers(wanted), actual);
 }
+// Flexible placement must take precedence over detached camera modes on an
+// overlapping hotkey. Otherwise holding Offset (G in existing user profiles)
+// starts Freelook and releasing G restores the pre-look camera orientation.
+// Compare the full chord, not just the key, and do not suppress camera controls
+// when Flexible Placement is disabled or their modifiers are disjoint.
+inline constexpr bool cameraFlexiblePlacementHotkeyConflict(
+    HotkeyChord camera, bool flexibleEnabled, HotkeyChord rotation,
+    HotkeyChord offset, HotkeyChord adjacent) noexcept {
+    return flexibleEnabled
+        && (hotkeyConflict(camera, rotation) || hotkeyConflict(camera, offset)
+            || hotkeyConflict(camera, adjacent));
+}
 struct CameraOptions {
     bool hold = true;
     float degreesPerPixel = 0.15f;

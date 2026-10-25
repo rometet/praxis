@@ -16,12 +16,13 @@
 #include "core/FeatureRegistryPolicy.h"
 #include "core/CameraCandidatePolicy.h"
 #include "core/WeatherOptions.h"
+#include "core/FlexiblePlacementPolicy.h"
 #include <array>
 #include <atomic>
 #include <memory>
 namespace praxis::companion {
-// Storage extent27; own0..14,20/21,24,26. Retired InventoryHUD23 and unknown slots stay opaque.
-inline constexpr std::uint32_t ownedFeatureSlotMask=0x05307fffu;
+// Storage extent28; own0..14,20/21,24,26/27. Retired InventoryHUD23 and unknown slots stay opaque.
+inline constexpr std::uint32_t ownedFeatureSlotMask=0x0D307FFFu;
 struct Settings {
  HitboxOptions hitboxOptions{};
  RenderMask renderMask{};
@@ -44,6 +45,7 @@ struct Settings {
  HandRestockOptions handRestock{};
  InventorySortOptions inventorySort{};
  InventoryTransferOptions inventoryTransfer{};
+ FlexiblePlacementOptions flexiblePlacement{};
  CameraOptions freelookOptions{},freeCameraOptions{};
  WeatherOptions weatherOptions{};
  int zoomActionKey='C',mapToggleActionKey='M';

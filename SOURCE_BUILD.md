@@ -1,3 +1,34 @@
+# R34 source build and binary correspondence
+
+Current source release: **v0.1.4-rc.1** (Praxis R34).
+Minecraft Bedrock 1.26.51.01; LeviLamina Client 26.51.5; Windows x64.
+
+Build the canonical source at the immutable release tag from `companion/`:
+
+    xmake f -p windows -a x64 -m release --target_type=client -y
+    xmake b -j 3 PraxisCompanion
+
+The distributed R34 DLL is the one built from this source state and
+locally tested in-game with the G/Freelook conflict resolved. The source
+commit SHA, DLL/PDB SHA-256 hashes, target SDK, package metadata and
+limitations appear in the GitHub Release and downloadable BUILD_INFO.json.
+Exact cross-host binary reproducibility is not claimed.
+
+R34 offline validation:
+- Hotkey modifiers / camera collision: 282 checks PASS
+- Flexible Placement: 529 PASS
+- Floor stair placement: 2515 checks; failures 0
+- LHolo Flexible Placement ABI: 6 PASS
+- Windows release DLL build: PASS
+
+R34 requires separately installed LHolo with flexible-placement ABI v2
+for rotation/offset/adjacent native transactions. This feature is built
+for Bedrock, not a byte-for-byte port of Java Tweakeroo. Native server
+acceptance for every block and server is not claimed. The R33 resource-
+pack world gate and LHolo resource ABI v4 requirements are unchanged.
+
+## Earlier R33 build notes
+
 # R33 source build and binary correspondence
 
 Target: Minecraft Bedrock **1.26.51.01**, LeviLamina Client **26.51.5**, Windows x64.

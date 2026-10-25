@@ -1,6 +1,7 @@
 #include "runtime/Runtime.h"
 #include "platform/EffectPatches.h"
 #include "runtime/ConfigStorage.h"
+#include "platform/FlexiblePlacement.h"
 #include "runtime/ConfigMigration.h"
 #include "core/RuntimePolicy.h"
 #include "platform/Native.h"
@@ -94,6 +95,7 @@ bool toggleFeatureRequest(Feature feature) {
     case Feature::Hitbox: value = &config.hitboxOptions.enabled; break;
     case Feature::InventoryHUD: value = &config.inventoryHud; break;
     case Feature::AntiEffect: value = &config.antiEffect; break;
+    case Feature::FlexibleBlockPlacement: value = &config.flexibleBlockPlacement; break;
     default: return false;
     }
     *value = !*value;
@@ -389,6 +391,7 @@ void drawWorld(BaseActorRenderContext& context, bool alphaLayer) {
         serviceFrame();
     }
     renderWorldOverlays(context, alphaLayer);
+    renderFlexiblePlacementOverlay(context, alphaLayer);
 }
 
 bool handleZoomScroll(int direction) {
@@ -410,6 +413,7 @@ void adjustZoomMouse(short& dx, short& dy) {
 }
 
 void resetWorldRuntime() noexcept {
+    resetFlexiblePlacement();
     packs::invalidateWorldPackOperation();
     requestCameraCandidateReset();
     cancelUnifiedHotkeyCapture();

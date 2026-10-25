@@ -115,6 +115,24 @@ bool setBinding(RuntimeConfig& c,OptionalLholo& host,int group,int id,unsigned k
         }
         *value=operation==0?int(key):0;*mods=operation==0?modifiers:anyModifiers;return true;
     }
+    if(group==6){
+        if(id<0||id>2)return false;
+        int* value=nullptr;unsigned* mods=nullptr;
+        switch(id){
+        case 0:value=&c.flexiblePlacementOptions.rotationKey;mods=&c.flexiblePlacementOptions.rotationModifiers;break;
+        case 1:value=&c.flexiblePlacementOptions.offsetKey;mods=&c.flexiblePlacementOptions.offsetModifiers;break;
+        case 2:value=&c.flexiblePlacementOptions.adjacentKey;mods=&c.flexiblePlacementOptions.adjacentModifiers;break;
+        default:return false;
+        }
+        auto const& flexibleDefaults=defaults.flexiblePlacementOptions;
+        if(operation==0){*value=int(key);*mods=modifiers;}
+        else if(operation==1){*value=0;*mods=anyModifiers;}
+        else {
+            *value=id==0?flexibleDefaults.rotationKey:id==1?flexibleDefaults.offsetKey:flexibleDefaults.adjacentKey;
+            *mods=id==0?flexibleDefaults.rotationModifiers:id==1?flexibleDefaults.offsetModifiers:flexibleDefaults.adjacentModifiers;
+        }
+        return true;
+    }
     if(group==0){
         if(id<0||static_cast<unsigned>(id)>=featureCount
             ||!(ownedFeatureSlotMask&featureRegistryBit(static_cast<unsigned>(id))))return false;
@@ -153,6 +171,9 @@ void drawUnifiedHotkeys(RuntimeConfig& c,bool& changed,std::uint32_t& bindingEdi
 #endif
     std::vector<Binding> rows;
     for(unsigned i=0;i<featureCount;++i)if(ownedFeatureSlotMask&featureRegistryBit(i))rows.push_back({featureDisplayName(featureNames[i]),{unsigned(c.keybinds[i]),c.keybindModifiers[i],1},0,int(i)});
+    rows.push_back({"FlexiblePlacement: 回転 HOLD",{unsigned(c.flexiblePlacementOptions.rotationKey),c.flexiblePlacementOptions.rotationModifiers,1},6,0});
+    rows.push_back({"FlexiblePlacement: オフセット HOLD",{unsigned(c.flexiblePlacementOptions.offsetKey),c.flexiblePlacementOptions.offsetModifiers,1},6,1});
+    rows.push_back({"FlexiblePlacement: 隣接 HOLD",{unsigned(c.flexiblePlacementOptions.adjacentKey),c.flexiblePlacementOptions.adjacentModifiers,1},6,2});
     rows.push_back({"ズーム（実行）",{unsigned(c.zoomKey),c.zoomModifiers,1},1,0});
     rows.push_back({"地図のON/OFF",{unsigned(c.mapToggleKey),c.mapToggleModifiers,1},2,0});
     auto mapKeys=mapActionBindings();constexpr std::array mapLabels{"ミニマップ切替","拡大","縮小","洞窟切替","自分を中心に","地点を追加"};
