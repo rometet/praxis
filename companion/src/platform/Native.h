@@ -1,9 +1,11 @@
 #pragma once
 #include <filesystem>
+#include "core/NativeHookLifetime.h"
 class BaseActorRenderContext;
 class IClientInstance;
 class LocalPlayer;
 namespace praxis::companion {
+NativeHookLifetime& nativeHookLifetime() noexcept;
 bool installNative();
 bool beginNativeStop() noexcept;
 bool removeNative() noexcept;

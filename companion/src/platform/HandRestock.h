@@ -7,5 +7,6 @@ void tickHandRestock(LocalPlayer& player) noexcept;
 void serviceHandRestock() noexcept;
 void resetHandRestock() noexcept;
 void requestHandRestockReset() noexcept;
+bool handRestockPlacementBusy() noexcept;
 char const* handRestockStatus() noexcept;
 }

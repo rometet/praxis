@@ -75,6 +75,10 @@ RequestResult requestResult(std::uint64_t token) {
     if(!token||token!=owner)return RequestResult::Untracked;
     return barrier.result(worldGeneration.load(),GetTickCount64());
 }
+bool requestPathBusy() noexcept {
+    std::lock_guard lock(mutex);
+    return barrier.busy() || owner != 0;
+}
 void releaseRequest(std::uint64_t token) noexcept {
     std::lock_guard lock(mutex);if(token&&token==owner){
         // Retire the plan without losing ownership of its native request. A

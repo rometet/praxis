@@ -40,6 +40,7 @@ namespace praxis::companion {
 namespace {
 std::atomic<std::shared_ptr<InformationOptions const>> options{std::make_shared<InformationOptions>()};
 std::atomic<std::shared_ptr<InformationSnapshot const>> publication{std::make_shared<InformationSnapshot>()};
+std::atomic<std::shared_ptr<BlockStateSample const>> lastInspectedBlock;
 ll::event::ListenerPtr listener;
 std::mutex collectionMutex;
 std::atomic_bool running{};
@@ -175,11 +176,15 @@ void collect(ll::event::AfterUIRenderEvent& event) {
         saturationTracker.reset();return;
     }
     previousGeneration=generation;previousTime=now;previousPosition={feet.x,feet.y,feet.z};
+    if(auto block=parseBlockStateSample(next.inspector.looking[0],generation,now))
+        lastInspectedBlock.store(std::make_shared<BlockStateSample const>(std::move(*block)));
+    else lastInspectedBlock.store(nullptr);
     publication.store(std::make_shared<InformationSnapshot const>(std::move(next)));
 }
 }
 std::shared_ptr<InformationOptions const> informationOptions() noexcept {return options.load();}
 std::shared_ptr<InformationSnapshot const> informationSnapshot() noexcept {return publication.load();}
+std::shared_ptr<BlockStateSample const> lastInspectedBlockSample() noexcept {return lastInspectedBlock.load();}
 void configureInformationRuntime(InformationOptions const& value) {
     if(validInformationOptions(value)) {
         std::lock_guard lock(collectionMutex);
@@ -194,6 +199,7 @@ void configureInformationRuntime(InformationOptions const& value) {
 void resetInformationRuntime() noexcept {
     std::lock_guard lock(collectionMutex);publication.store(std::make_shared<InformationSnapshot>());
     previousGeneration=previousTime=memorySampleAt=0;previousPosition={};cachedMemory.clear();saturationTracker.reset();
+    lastInspectedBlock.store(nullptr);
 }
 bool startInformationRuntime() {
     if(running.exchange(true)||listener)return true;

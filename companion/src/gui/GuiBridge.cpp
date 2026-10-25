@@ -15,6 +15,8 @@
 #include "map/MapRuntime.h"
 #include "map/MapGraphics.h"
 #include "core/Settings.h"
+#include "core/CoexistencePolicy.h"
+#include "core/BlockStateComparePolicy.h"
 #include "gui/LegacyUiFont.h"
 #include "platform/CameraCandidate.h"
 
@@ -32,6 +34,8 @@
 #include <cstdio>
 #include <cstdint>
 #include <mutex>
+#include <memory>
+#include <optional>
 #include <string_view>
 #include <vector>
 
@@ -72,8 +76,11 @@ struct LegacyGuiState {
     bool favoritesOnly{};
     int settingKeybind = -1;
     char search[128]{};
+    std::optional<BlockStateSample> pinnedBlock;
 };
 LegacyGuiState legacyGuiState;
+// Owned snapshot captured exactly when F10 opens. Read-only until next opening.
+std::atomic<std::shared_ptr<BlockStateSample const>> blockOnMenuOpen;
 std::atomic_bool praxisMenuVisible{};
 std::atomic_bool openModuleListPending{};
 
@@ -118,6 +125,7 @@ constexpr std::array cards{
     ModuleCard{Feature::FreeCamera, "FreeCamera", "WASD・Space・Shiftでカメラを移動", false},
     ModuleCard{Feature::AntiEffect, "AntiEffect", "炎・ポータルの画面効果を抑制", false},
     ModuleCard{Feature::OffhandSwap, "OffhandSwap", "キー操作でメインとオフハンドを持ち替え", true},
+    ModuleCard{Feature::FlexibleBlockPlacement, "FlexibleBlockPlacement", "R/G/Hを押して5領域の配置・回転・隣接を選択", true},
 };
 static_assert(cards.size() <= featureCount);
 constexpr unsigned favoriteSlot(unsigned card) noexcept {
@@ -152,6 +160,7 @@ bool* enabledField(RuntimeConfig& config, Feature feature) noexcept {
     case Feature::Freelook: return &config.freelook;
     case Feature::FreeCamera: return &config.freeCamera;
     case Feature::AntiEffect: return &config.antiEffect;
+    case Feature::FlexibleBlockPlacement: return &config.flexibleBlockPlacement;
     default: return nullptr;
     }
 }
@@ -232,15 +241,20 @@ void applyPraxisStyle(GuiStyleOptions const& options) {
     style.WindowBorderSize = options.outlineSize;
     style.PopupBorderSize = options.outlineSize;
     style.FrameBorderSize = std::min(options.outlineSize, 2.0f);
+    // Quiet surfaces by default. Reserve the accent for selected pages
+    // and intentional interactions instead of tinting every neutral button.
     style.Colors[ImGuiCol_WindowBg] = styleColor(options.background, options.backgroundOpacity);
-    style.Colors[ImGuiCol_ChildBg] = styleColor(options.background, options.backgroundOpacity * 0.78f);
-    style.Colors[ImGuiCol_Border] = styleColor(options.accentOutline, options.backgroundOpacity);
-    style.Colors[ImGuiCol_Button] = styleColor(options.accentOutline, 0.72f);
-    style.Colors[ImGuiCol_ButtonHovered] = styleColor(options.accent, 0.72f);
-    style.Colors[ImGuiCol_ButtonActive] = styleColor(options.accent, 0.90f);
-    style.Colors[ImGuiCol_Header] = styleColor(options.accentOutline, 0.72f);
-    style.Colors[ImGuiCol_HeaderHovered] = styleColor(options.accent, 0.64f);
-    style.Colors[ImGuiCol_HeaderActive] = styleColor(options.accent, 0.78f);
+    style.Colors[ImGuiCol_ChildBg] = styleColor(options.background, options.backgroundOpacity * 0.74f);
+    style.Colors[ImGuiCol_Border] = styleColor(options.accentOutline, options.backgroundOpacity * 0.52f);
+    style.Colors[ImGuiCol_Button] = styleColor(options.accentOutline, 0.40f);
+    style.Colors[ImGuiCol_ButtonHovered] = styleColor(options.accentOutline, 0.80f);
+    style.Colors[ImGuiCol_ButtonActive] = styleColor(options.accent, 0.85f);
+    style.Colors[ImGuiCol_Header] = styleColor(options.accentOutline, 0.48f);
+    style.Colors[ImGuiCol_HeaderHovered] = styleColor(options.accentOutline, 0.77f);
+    style.Colors[ImGuiCol_HeaderActive] = styleColor(options.accent, 0.80f);
+    style.Colors[ImGuiCol_Separator] = styleColor(options.accentOutline, 0.48f);
+    style.Colors[ImGuiCol_FrameBg] = styleColor(options.background, options.backgroundOpacity * 0.82f);
+    style.Colors[ImGuiCol_FrameBgHovered] = styleColor(options.accentOutline, 0.55f);
     style.Colors[ImGuiCol_CheckMark] = styleColor(options.accent);
     style.Colors[ImGuiCol_SliderGrab] = styleColor(options.accent);
     style.Colors[ImGuiCol_SliderGrabActive] = styleColor(options.accent, 0.85f);
@@ -464,6 +478,20 @@ void drawDetails(RuntimeConfig& config, Feature feature, bool& changed) {
     case Feature::FreeCamera: {
         bool const free=feature==Feature::FreeCamera;
         auto& o=free?config.freeCameraOptions:config.freelookOptions;
+        auto const cameraSlot=static_cast<unsigned>(feature);
+        auto const& flexible=config.flexiblePlacementOptions;
+        if(config.flexibleBlockPlacement
+            && cameraSlot<config.keybinds.size()
+            && cameraFlexiblePlacementHotkeyConflict(
+                {static_cast<unsigned>(config.keybinds[cameraSlot]),
+                 cameraHotkeyModifiers(config.keybindModifiers[cameraSlot]),1},
+                true,
+                {static_cast<unsigned>(flexible.rotationKey),flexible.rotationModifiers,1},
+                {static_cast<unsigned>(flexible.offsetKey),flexible.offsetModifiers,1},
+                {static_cast<unsigned>(flexible.adjacentKey),flexible.adjacentModifiers,1})) {
+            ImGui::TextWrapped("Hotkey conflict: Flexible Block Placement takes priority. "
+                "Assign a different hotkey to this camera mode to enable it.");
+        }
         if(free)
             ImGui::TextWrapped("起動キーを押すたびに開始・終了します。長押しは不要です。");
         else {
@@ -600,6 +628,24 @@ void drawDetails(RuntimeConfig& config, Feature feature, bool& changed) {
         ImGui::TextWrapped("初期は無効。ONにすると、設定した残り耐久値・耐久率の下限で採掘を止めます。攻撃の保護は上の設定で選択。押し直しても下限は解除されません。再開は道具を交換するか、この機能をOFFにします。道具の使用操作や一度に複数の耐久値を使う操作は対象外です。");
         break;
     }
+    case Feature::FlexibleBlockPlacement: {
+        auto& o = config.flexiblePlacementOptions;
+        ImGui::SeparatorText("Flexible Block Placement - 3 modes");
+        ImGui::BulletText("Rotation (hold key %c): choose block facing using the 5-way overlay",
+            o.rotationKey >= 'A' && o.rotationKey <= 'Z' ? o.rotationKey : '?');
+        ImGui::BulletText("Offset (hold key %c): place diagonally or with a 1-block gap",
+            o.offsetKey >= 'A' && o.offsetKey <= 'Z' ? o.offsetKey : '?');
+        ImGui::BulletText("Adjacent (hold key %c): place next to the clicked block",
+            o.adjacentKey >= 'A' && o.adjacentKey <= 'Z' ? o.adjacentKey : '?');
+        ImGui::TextWrapped("Hold two or three keys together to combine modes. "
+            "Use the key-binding page to customize these keys. "
+            "The green target outline shows the actual destination.");
+        ImGui::TextWrapped("有効中に、指定した3つのキーを押しながらブロック面を狙います。中央と上下左右の5領域を選び、通常のサーバー権威配置を一度だけ呼び出します。");
+        ImGui::TextWrapped("HOLD キーと修飾キーは上の「キー割当」画面で、割当ボタンから入力してください。ここでは VK 数値を直接編集しません。");
+        ImGui::TextDisabled("既定: P=機能ON/OFF、R=回転、G=オフセット、H=隣接。UI・空手・食べ物・破壊中は介入しません。");
+        ImGui::TextDisabled("ログ/ホッパー/ピストン等の状態はバニラの配置判定に委ね、支持面・到達距離・空きセルが確認できない場合は変換しません。");
+        break;
+    }
     default:
         ImGui::TextDisabled("26.51.5ではこの機能を準備できません");
         break;
@@ -715,7 +761,15 @@ void drawHudSettings(RuntimeConfig& config, bool& changed, int& selected) {
     ImGui::SetNextItemWidth(-1.f);
     ImGui::InputTextWithHint("##hud_search", "HUD名・説明を検索", hudSearch, sizeof(hudSearch));
     if(ImGui::Button("HUD配置を開く")) selected=-9;
-    ImGui::TextWrapped("位置・倍率はHUD配置でも調整できます。バンドルとツールチップは機能一覧のシュルカーの中身で設定できます。");
+    if(ImGui::IsItemHovered())ImGui::SetTooltip("HUDの位置と倍率をまとめて調整します");
+    ImGui::SeparatorText("クイック切替");
+    changed |= ImGui::Checkbox("情報HUDを表示", &o.infoHud);
+    changed |= ImGui::Checkbox("装備の耐久値HUDを表示", &o.durabilityHud);
+    changed |= ImGui::Checkbox("オフハンドHUDを表示", &player.offhandHud);
+    changed |= ImGui::Checkbox("満腹度HUDを表示", &player.foodHud);
+    changed |= ImGui::Checkbox("チャンク情報HUDを表示", &config.chunkBorder.showHud);
+    ImGui::Spacing();
+    ImGui::SeparatorText("詳細設定");
     bool found=false;
     auto section=[&](char const* title, char const* description) {
         if(!matches(title,description,hudSearch)) return false;
@@ -724,40 +778,30 @@ void drawHudSettings(RuntimeConfig& config, bool& changed, int& selected) {
         hudSettingsTestSections.emplace_back(title);
 #endif
         if(*hudSearch) ImGui::SetNextItemOpen(true,ImGuiCond_Always);
-        return ImGui::CollapsingHeader(title,ImGuiTreeNodeFlags_DefaultOpen);
+        return ImGui::CollapsingHeader(title);
     };
     if(section("情報HUD", "Information 座標 方角 FPS 見ている対象 ブロック メモリ 文字色")) {
-        changed |= ImGui::Checkbox("情報HUDを表示", &o.infoHud);
-        if(ImGui::CollapsingHeader("見ている対象・端末の情報")) {
-            auto& look=o.inspector;
-            changed |= ImGui::Checkbox("ブロック状態",&look.blockState);
-            changed |= ImGui::Checkbox("ブロックタグ",&look.tags);
-            changed |= ImGui::Checkbox("液体層",&look.fluid);
-            changed |= ImGui::Checkbox("可視エンティティ",&look.entity);
-            changed |= ImGui::Checkbox("プロセスの常駐メモリ",&look.memory);
-            auto sample=informationSnapshot();bool current=runtimeReady.load()&&informationCurrent(*sample,worldGeneration.load(),GetTickCount64());
-            for(auto const& line:inspectorLinesJa(current?sample->inspector:InspectorSnapshot{},look))ImGui::TextWrapped("%s",line.c_str());
-            auto copyButton=[&](char const* label,unsigned row) {
-                auto value=inspectorCopyText(sample->inspector,row,current);
-                ImGui::BeginDisabled(value.empty());
-                if(ImGui::Button(label)&&!value.empty())ImGui::SetClipboardText(value.c_str());
-                ImGui::EndDisabled();
-            };
-            copyButton("ブロック状態をコピー",0);copyButton("エンティティをコピー",3);
-            ImGui::TextWrapped("既存の情報HUDに追加します。端末で取得した対象だけを表示し、未取得・非可視・範囲外は不明です。メモリは1秒ごと、速度は位置差と実時間から計測します。TPS・パケット数・GPU使用率・粒子数は未対応です。");
-        }
-        if (ImGui::CollapsingHeader("情報の表示項目")) {
+        if (ImGui::CollapsingHeader("表示項目")) {
             changed |= ImGui::Checkbox("取得不可も表示", &o.showUnavailable);
-            for (unsigned i=0;i<o.lines.size();++i) changed |= ImGui::Checkbox(informationDisplayNames[i], &o.lines[i]);
+            for (unsigned i=0;i<o.lines.size();++i)
+                changed |= ImGui::Checkbox(informationDisplayNames[i], &o.lines[i]);
         }
-        changed |= ImGui::SliderFloat("HUD X", &o.x, 0, 4096);
-        changed |= ImGui::SliderFloat("HUD Y", &o.y, 0, 2160);
-        changed |= ImGui::SliderFloat("HUD倍率", &o.scale, .5f, 3);
-        auto color = colorFloats(o.textColor);
-        if (ImGui::ColorEdit4("HUD文字色", color.data())) { o.textColor=packedAbgr(color); changed=true; }
+        if (ImGui::CollapsingHeader("位置・外観##information")) {
+            changed |= ImGui::SliderFloat("HUD X", &o.x, 0, 4096);
+            changed |= ImGui::SliderFloat("HUD Y", &o.y, 0, 2160);
+            changed |= ImGui::SliderFloat("HUD倍率", &o.scale, .5f, 3);
+            auto color = colorFloats(o.textColor);
+            if (ImGui::ColorEdit4("HUD文字色", color.data())) {
+                o.textColor=packedAbgr(color); changed=true;
+            }
+        }
+        if (ImGui::CollapsingHeader("詳細##information")) {
+            // The sampler is separate from the always-visible HUD.
+            changed |= ImGui::Checkbox("ブロック比較用の状態取得",&o.inspector.blockState);
+            if(ImGui::IsItemHovered())ImGui::SetTooltip("比較データはF10のブロック比較ページだけに表示します");
+        }
     }
     if(section("装備・耐久HUD", "Equipment Armor Durability 装備の耐久値")) {
-        changed |= ImGui::Checkbox("装備の耐久値HUDを表示", &o.durabilityHud);
         if (ImGui::CollapsingHeader("装備の表示")) {
             changed |= ImGui::SliderFloat("装備X", &o.durabilityX, 0, 4096);
             changed |= ImGui::SliderFloat("装備Y", &o.durabilityY, 0, 2160);
@@ -766,7 +810,6 @@ void drawHudSettings(RuntimeConfig& config, bool& changed, int& selected) {
         }
     }
     if(section("オフハンドHUD", "Offhand 左手 個数 耐久値 空スロット")) {
-        changed |= ImGui::Checkbox("オフハンドHUDを表示", &player.offhandHud);
         if(ImGui::CollapsingHeader("オフハンドの表示")) {
             changed |= ImGui::Checkbox("空でも表示", &player.offhandShowEmpty);
             changed |= ImGui::Checkbox("個数", &player.offhandShowCount);
@@ -777,8 +820,8 @@ void drawHudSettings(RuntimeConfig& config, bool& changed, int& selected) {
         }
     }
     if(section("満腹度HUD", "Food Hunger Saturation 隠し満腹度 消耗度")) {
-        changed |= ImGui::Checkbox("満腹度HUDを表示", &player.foodHud);
-        ImGui::TextWrapped("満腹度と隠し満腹度は端末側の値です。隠し満腹度は有効な値の変化を観測するまで「不明」。消耗度は未確認のため「不明」です。");
+        ImGui::TextDisabled("未確認の値は「不明」と表示");
+        if(ImGui::IsItemHovered())ImGui::SetTooltip("隠し満腹度は値の変化を確認するまで不明です。消耗度は未対応です");
         if(ImGui::CollapsingHeader("満腹度HUDの位置")) {
             changed |= ImGui::SliderFloat("満腹度X", &player.foodX,0,4096);
             changed |= ImGui::SliderFloat("満腹度Y", &player.foodY,0,2160);
@@ -786,11 +829,10 @@ void drawHudSettings(RuntimeConfig& config, bool& changed, int& selected) {
         }
     }
     if(section("チャンク情報HUD", "Chunks ChunkBorders チャンク座標 高さ")) {
-        changed |= ImGui::Checkbox("チャンク情報HUDを表示", &config.chunkBorder.showHud);
-        ImGui::TextWrapped("機能一覧のチャンク境界がONの間に表示します。");
+        ImGui::TextDisabled("ChunkBordersを有効にしたとき表示");
     }
     if(section("設計図・材料HUD / HUD配置", "Schematic Materials LHolo HUD Layout Editor 位置 倍率")) {
-        ImGui::TextWrapped("LHoloの設計図・材料HUDはLHolo側でON/OFFを設定できます。連携中はHUD配置から位置と倍率を編集できます。");
+        ImGui::TextDisabled("設計図と材料の表示切替はLHoloで設定");
         if(ImGui::Button("設計図・材料のHUD配置を開く")) selected=-9;
     }
     if(!found) ImGui::TextDisabled("条件に一致するHUDはありません。");
@@ -852,9 +894,18 @@ void drawLegacyPraxis(void* context) noexcept {
 
         auto pageButton = [&](int page, char const* label) {
             bool const active = selected == page || (page == -1 && selected >= 0);
-            if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
-            if (ImGui::Button(label, {-1.0f, 36.0f})) selected = page;
-            if (active) ImGui::PopStyleColor();
+            ImGui::PushStyleColor(ImGuiCol_Button, active
+                ? ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive)
+                : ImGui::GetStyleColorVec4(ImGuiCol_ChildBg));
+            if (ImGui::Button(label, {-1.0f, 31.0f})) selected = page;
+            ImGui::PopStyleColor();
+            if (active) {
+                auto a=ImGui::GetItemRectMin(),b=ImGui::GetItemRectMax();
+                // A three-pixel accent rail provides an unobtrusive selection cue.
+                ImGui::GetWindowDrawList()->AddRectFilled(
+                    {a.x+2,a.y+5},{a.x+5,b.y-5},
+                    ImGui::GetColorU32(ImGuiCol_CheckMark),2.0f);
+            }
         };
         auto categoryLabel = [](int category) {
             switch (category) {
@@ -867,30 +918,36 @@ void drawLegacyPraxis(void* context) noexcept {
             }
         };
         float longestPageLabel{};
-        for (char const* label : {"機能一覧", "設計図", "地図", "HUD", "HUD配置",
-                                 "表示設定", "保存設定", "キー割当", "カメラ", "リソースパック", "このModについて"})
+        for (char const* label : {"機能", "設計図", "地図", "HUD", "HUD配置",
+                                 "表示設定", "保存", "キー割当", "カメラ", "リソパ", "ブロック比較", "互換性", "情報"})
             longestPageLabel = std::max(longestPageLabel, ImGui::CalcTextSize(label).x);
         auto const& style = ImGui::GetStyle();
         float const labelWidth = longestPageLabel + 2 * style.FramePadding.x
             + 2 * style.WindowPadding.x + style.ScrollbarSize;
         float const sidebarWidth = std::max(labelWidth,
-            std::clamp(ImGui::GetContentRegionAvail().x * 0.22f, 136.0f, 194.0f));
+            std::clamp(ImGui::GetContentRegionAvail().x * 0.20f, 136.0f, 180.0f));
         ImGui::BeginChild("##praxis_sidebar", {sidebarWidth, 0.0f}, ImGuiChildFlags_Borders);
-        ImGui::TextUnformatted("PRAXIS");
-        ImGui::TextDisabled("クライアント");
+        ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_CheckMark),"PRAXIS");
+        ImGui::SameLine();ImGui::TextDisabled("CLIENT");
         ImGui::Separator();
-
-        pageButton(-1, "機能一覧");
-        pageButton(-6, "設計図");
-        pageButton(-7, "地図");
-        pageButton(-12, "リソースパック");
-        pageButton(-11, "カメラ");
+        ImGui::TextDisabled("メイン");
+        pageButton(-1, "機能");
         pageButton(-8, "HUD");
+        pageButton(-12, "リソパ");
+        pageButton(-13, "ブロック比較");
+        pageButton(-7, "地図");
+        pageButton(-6, "設計図");
+        ImGui::Spacing();
+        ImGui::TextDisabled("ツール");
+        pageButton(-11, "カメラ");
+        pageButton(-14, "互換性");
+        ImGui::Spacing();
+        ImGui::TextDisabled("設定");
         pageButton(-9, "HUD配置");
-        pageButton(-2, "表示設定");
-        pageButton(-3, "保存設定");
         pageButton(-4, "キー割当");
-        pageButton(-5, "このModについて");
+        pageButton(-3, "保存");
+        pageButton(-2, "表示設定");
+        pageButton(-5, "情報");
 
         if (selected == -1) {
             ImGui::Spacing();
@@ -915,6 +972,74 @@ void drawLegacyPraxis(void* context) noexcept {
         ImGui::BeginChild("##praxis_content", {0.0f, 0.0f});
         if (selected == -12) {
             drawResourcePackPage();
+        } else if (selected == -14) {
+            ImGui::TextUnformatted("互換性");
+            ImGui::SeparatorText("検出状況");
+            bool const lamiumLoaded=GetModuleHandleW(L"Lamium.dll")!=nullptr;
+            ImGui::TextUnformatted("Lamium");
+            ImGui::SameLine();
+            ImGui::TextColored(lamiumLoaded?ImVec4{.34f,.84f,.55f,1.f}:ImVec4{.68f,.70f,.74f,1.f},
+                "%s",lamiumLoaded?"検出":"未検出");
+            unsigned activeOverlaps=0;
+            for(auto feature:lamiumOverlapCandidates) {
+                auto* enabled=enabledField(config,feature);
+                if(enabled&&*enabled)++activeOverlaps;
+            }
+            ImGui::TextDisabled("Praxisの重複候補: %u 件",activeOverlaps);
+            if(lamiumLoaded&&activeOverlaps&&ImGui::Button("Praxisの重複機能をOFF")) {
+                for(auto feature:lamiumOverlapCandidates) {
+                    auto* enabled=enabledField(config,feature);
+                    if(enabled&&mayDisablePraxisOverlap(lamiumLoaded,feature,*enabled)) {
+                        *enabled=false;changed=true;
+                    }
+                }
+            }
+        } else if (selected == -13) {
+            ImGui::TextUnformatted("ブロック比較");
+            ImGui::SeparatorText("状態");
+            auto& inspector=config.informationOptions.inspector;
+            if(!inspector.blockState) {
+                if(ImGui::Button("比較機能をON")) {
+                    inspector.blockState=true;changed=true;
+                }
+            }
+            auto const generation=worldGeneration.load();
+            auto& reference=legacyGuiState.pinnedBlock;
+            if(reference&&reference->generation!=generation)reference.reset();
+            auto current=blockOnMenuOpen.load();
+            if(current&&current->generation!=generation)current.reset();
+            auto shortLabel=[](BlockStateSample const* sample) {
+                if(!sample)return std::string("未取得");
+                std::string name=sample->label.substr(0,sample->label.find(" @ "));
+                if(name.starts_with("minecraft:"))name.erase(0,10);
+                return name;
+            };
+            auto const currentName=shortLabel(current.get());
+            auto const referenceName=shortLabel(reference?&*reference:nullptr);
+            ImGui::TextDisabled("対象");
+            ImGui::SameLine(88.f);
+            ImGui::TextWrapped("%s",currentName.c_str());
+            if(ImGui::IsItemHovered()&&current)ImGui::SetTooltip("%s",current->label.c_str());
+            ImGui::TextDisabled("基準");
+            ImGui::SameLine(88.f);
+            ImGui::TextWrapped("%s",referenceName.c_str());
+            if(ImGui::IsItemHovered()&&reference)ImGui::SetTooltip("%s",reference->label.c_str());
+            ImGui::Separator();
+            if(reference) {
+                auto const result=compareBlockStates(&*reference,current.get());
+                if(result==BlockStateComparison::Same)
+                    ImGui::TextColored({0.3f,0.9f,0.5f,1.0f},"比較結果: 一致");
+                else if(result==BlockStateComparison::Different)
+                    ImGui::TextColored({1.0f,0.65f,0.25f,1.0f},"比較結果: 異なる");
+                else ImGui::TextDisabled("比較結果: 対象なし");
+            } else ImGui::TextDisabled("まだ基準を保存していません。");
+            ImGui::Spacing();
+            if(current&&ImGui::Button("このブロックを基準にする"))reference=*current;
+            if(reference) {
+                if(current&&ImGui::GetContentRegionAvail().x>130.f)ImGui::SameLine();
+                if(ImGui::Button("基準を消去"))reference.reset();
+            }
+            ImGui::TextDisabled("対象の更新: F10を閉じて開き直す");
         } else if (selected == -2) {
             ImGui::TextUnformatted("表示設定");
             ImGui::SeparatorText("フォント");
@@ -976,9 +1101,14 @@ void drawLegacyPraxis(void* context) noexcept {
             ImGui::Separator();
             drawMapSettings();
         } else if (selected == -1) {
-            ImGui::TextUnformatted("機能一覧");
+            ImGui::TextUnformatted("機能");
+            unsigned onCount=0;
+            for(auto const& card:cards) {
+                auto* enabled=enabledField(config,card.feature);
+                if(enabled&&*enabled)++onCount;
+            }
             ImGui::SameLine();
-            ImGui::TextDisabled("カードで設定 / ON・OFFで切替");
+            ImGui::TextDisabled("%u / %zu ON",onCount,cards.size());
             ImGui::SetNextItemWidth(-1.0f);
             ImGui::InputTextWithHint("##module_search", "機能名・説明を検索", search, sizeof(search));
             ImGui::Spacing();
@@ -1018,7 +1148,7 @@ void drawLegacyPraxis(void* context) noexcept {
                     if (visibleIndex % static_cast<std::size_t>(columns) != 0) ImGui::SameLine();
                     ImGui::PushID(static_cast<int>(i));
 
-                    ImVec2 const size{cardWidth, 184.0f};
+                    ImVec2 const size{cardWidth, 176.0f};
                     ImVec2 const topLeft = ImGui::GetCursorScreenPos();
                     bool const hovered = ImGui::IsMouseHoveringRect(
                         topLeft, {topLeft.x + size.x, topLeft.y + size.y});
@@ -1047,9 +1177,11 @@ void drawLegacyPraxis(void* context) noexcept {
                         ImGui::SetTooltip("%s", featureDisplayName(card.name));
 
                     ImGui::TextDisabled("%s", categoryLabel(moduleCategory(card)));
-                    ImGui::BeginChild("##description", {0.0f, 49.0f});
+                    ImGui::BeginChild("##description", {0.0f, 41.0f});
                     ImGui::TextWrapped("%s", card.description);
                     ImGui::EndChild();
+                    if(ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort))
+                        ImGui::SetTooltip("%s",card.description);
                     ImGui::Separator();
 
                     bool cardControlActivated = false;
@@ -1101,8 +1233,9 @@ void drawLegacyPraxis(void* context) noexcept {
                 ImGui::SameLine();
                 ImGui::TextDisabled("%s", categoryLabel(moduleCategory(card)));
                 ImGui::Separator();
-                ImGui::TextWrapped("%s", featureDisplayName(card.name));
-                ImGui::TextWrapped("%s", card.description);
+                ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_CheckMark),
+                    "%s",featureDisplayName(card.name));
+                ImGui::TextDisabled("%s", card.description);
                 ImGui::Spacing();
 
                 bool* enabled = enabledField(config, card.feature);
@@ -1132,13 +1265,15 @@ void drawLegacyPraxis(void* context) noexcept {
                 auto const moduleBind = keyName(config.keybinds[static_cast<unsigned>(card.feature)]);
                 ImGui::Text("キー割り当て: %s", moduleBind.c_str());
                 ImGui::SeparatorText("機能設定");
-                if(card.feature==Feature::Freelook||card.feature==Feature::FreeCamera)
-                    ImGui::TextWrapped("初期状態はOFFです。上のON/OFFボタンで有効にし、キー割当画面の「操作キー／カメラ起動」で起動・終了キーを設定します。設定変更は現在の設定に保存されます。");
-                else if(card.feature==Feature::OffhandSwap)
-                    ImGui::TextWrapped("初期状態はOFFです。上のON/OFFボタンで許可し、キー割当画面で実行キーを設定します。設定変更は現在の設定に保存されます。");
-                else
-                    ImGui::TextWrapped("初期状態はOFFです。上のON/OFFボタンで切り替え、キー割当画面でON/OFF用キーを設定できます。設定変更は現在の設定に保存されます。");
                 drawDetails(config, card.feature, changed);
+                if(ImGui::CollapsingHeader("使い方")) {
+                    if(card.feature==Feature::Freelook||card.feature==Feature::FreeCamera)
+                        ImGui::TextWrapped("有効化してから「キー割当」でカメラ操作キーを設定します。");
+                    else if(card.feature==Feature::OffhandSwap)
+                        ImGui::TextWrapped("有効化してから「キー割当」で実行キーを設定します。");
+                    else
+                        ImGui::TextWrapped("キー操作で切り替える場合は「キー割当」で設定できます。");
+                }
             }
         }
 
@@ -1244,8 +1379,17 @@ void drawPraxisContent(void* context) noexcept { drawPraxis(context); }
 
 void notifyPraxisGuiVisibility(bool visible) noexcept {
     bool const previous = praxisMenuVisible.exchange(visible, std::memory_order_acq_rel);
-    if (visible && !previous) openModuleListPending.store(true, std::memory_order_release);
-    if (!visible) cancelUnifiedHotkeyCapture();
+    if (visible && !previous) {
+        openModuleListPending.store(true, std::memory_order_release);
+        auto recent=lastInspectedBlockSample();
+        if(recent&&recentBlockStateSample(*recent,worldGeneration.load(),GetTickCount64()))
+            blockOnMenuOpen.store(std::move(recent));
+        else blockOnMenuOpen.store(nullptr);
+    }
+    if (!visible) {
+        blockOnMenuOpen.store(nullptr);
+        cancelUnifiedHotkeyCapture();
+    }
 }
 void drawChunkHudContent(void* context) noexcept {
     try {

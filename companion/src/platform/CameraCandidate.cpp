@@ -659,6 +659,15 @@ bool bindAllowed(int key,unsigned modifiers) {
     auto current=settings();HotkeyChord chord{unsigned(key),cameraHotkeyModifiers(modifiers),1};
     if(hotkeyConflict(chord,{unsigned(current->zoomActionKey),current->zoomActionModifiers,1})
         ||hotkeyConflict(chord,{unsigned(current->mapToggleActionKey),current->mapToggleActionModifiers,1}))return false;
+    // The camera is never allowed to adopt a Flexible Placement activation
+    // chord. In particular Freelook=G must not steal Offset=G: that would
+    // freeze the player yaw and snap the view back when G is released.
+    auto const& flexible=current->flexiblePlacement;
+    if(cameraFlexiblePlacementHotkeyConflict(chord,
+        current->on(Feature::FlexibleBlockPlacement),
+        {unsigned(flexible.rotationKey),flexible.rotationModifiers,1},
+        {unsigned(flexible.offsetKey),flexible.offsetModifiers,1},
+        {unsigned(flexible.adjacentKey),flexible.adjacentModifiers,1}))return false;
     for(unsigned i=0;i<featureCount;++i)if((ownedFeatureSlotMask&featureRegistryBit(i))
         &&i!=20&&i!=21&&hotkeyConflict(chord,{unsigned(current->keys[i]),current->keyModifiers[i],1}))return false;
     for(auto key:mapActionBindings())if(hotkeyConflict(chord,{unsigned(key),anyModifiers,1}))return false;

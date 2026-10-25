@@ -32,8 +32,13 @@ inline bool normalizeFeatureKeybinds(ConfigJson& document) {
  }
  auto next=document;
  if(next.contains("keybinds")||next.contains("keybindModifiers"))for(auto name:{"keybinds","keybindModifiers"}) {
+  auto const sourceSize = next.contains(name)&&next[name].is_array() ? next[name].size() : 0u;
   if(!next.contains(name))next[name]=ConfigJson::array();
   while(next[name].size()<count)next[name].push_back(std::string_view(name)=="keybinds"?0:anyModifiers);
+  if(std::string_view(name)=="keybinds"
+   &&sourceSize<=static_cast<std::size_t>(Feature::FlexibleBlockPlacement)
+   &&count>static_cast<std::size_t>(Feature::FlexibleBlockPlacement))
+   next[name][static_cast<std::size_t>(Feature::FlexibleBlockPlacement)]='P';
  }
  next["featureSlotSchema"]=featureSlotSchema;document.swap(next);return true;
 }

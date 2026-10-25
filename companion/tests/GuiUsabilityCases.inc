@@ -18,6 +18,9 @@ void testGuiOpeningAndHotkeys() {
     io.IniFilename=nullptr;io.LogFilename=nullptr;io.DisplaySize={1280,720};io.DeltaTime=1.f/60.f;
     testConfig={};testConfig.keybinds.resize(32);testConfig.keybindModifiers.resize(32,8);
     testConfig.keybinds[31]='Z';testConfig.keybindModifiers[31]=4;
+    // Keep the conflict-only fixture focused on the legacy Praxis/LHolo pair;
+    // the appended FlexiblePlacement feature is covered by its own rows.
+    testConfig.keybinds[static_cast<unsigned>(Feature::FlexibleBlockPlacement)]=0;
     check(configureLegacyUiFont(LegacyUiFontFamily::CorporateLogo,18.f),"interaction font loaded");
     unsigned char* pixels{};int width{},height{};io.Fonts->GetTexDataAsRGBA32(&pixels,&width,&height);
     unifiedHotkeyTestKeys={};unifiedHotkeyTestOwner=true;unifiedHotkeyTestApi={};

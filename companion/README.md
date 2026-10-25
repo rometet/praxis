@@ -1,54 +1,49 @@
-# Praxis Client / PraxisCompanion
+# PraxisCompanion v0.1.4-rc.1 / Praxis R34
 
-Minecraft Bedrock **1.26.51.01** / Windows x64 / LeviLamina Client **26.51.5**.
+Minecraft Bedrock 1.26.51.01 | Windows x64 | LeviLamina Client 26.51.5.
 
-This is the public source for **v0.1.2-rc.1**, a prerelease. The FreeCamera key
-toggle change has offline regression coverage and awaits an actual game test.
-The user's Weather OK report belongs to the preceding installed build; it is
-not a claim that this new binary has passed native testing.
+This is the canonical public source for the R34 prerelease. The runtime
+manifest schema still reports 0.1.0; the Git tag and package BUILD_INFO.json
+identify the actual release and corresponding source commit.
 
-## Changes
+## New in R34
 
-- UI descriptions are Japanese. NoRender and its options, TimeChanger and
-  WeatherChanger keep their English names; ON/OFF stays unchanged.
-- HUD controls are collected in the left HUD page, with the layout editor,
-  equipment, durability, information, offhand and LHolo HUD controls retained.
-- InventoryHUD's 27-slot display is retired from UI and execution. Slot 23
-  remains reserved, preserving old settings and unknown feature slots.
-- FreeCamera's activation key toggles on each fresh press. Releasing the key
-  keeps it active; a second press turns it off. Repeated key-down events do not
-  toggle it repeatedly. Legacy `hold` values remain readable. Freelook keeps
-  its own hold/toggle choice, and FreeCamera keeps its unlimited offset travel
-  and existing restoration behavior.
-- WeatherChanger retains the current Clear/Rain/Snow sky implementation.
+- Flexible Block Placement: Rotation (R), Offset (G), Adjacent (H), and
+  combined modes; toggle the feature with P.
+- Flexible Placement wins against conflicting Freelook/FreeCamera hotkeys.
+  In particular G no longer activates Freelook and snaps your view back.
+  Assign a different hotkey to Freelook to retain that function.
+- Floor-stair support handling, hit normalization, click fence and
+  placement-owner diagnostics.
+- Compact F10 interface, streamlined HUD, block-state comparison, and
+  Lamium coexistence controls.
 
-Unfinished Resource world/gate changes are excluded. Current LHolo projection
-transparency/geometry issues remain a separate reported issue; this Praxis
-release does not claim to resolve them.
+## Install and limitations
 
-## Install
+A separate compatible LHolo build exporting Flexible Placement ABI v2 is
+needed for transformed native placement. LHolo itself is not distributed here.
+No server-side addon is needed by the design, but not every block and BDS
+placement case is confirmed. Minecraft Java Tweakeroo inspires the three
+modes; network implementation on Bedrock is distinct.
 
-Use the release's `PraxisCompanion` directory under your launcher's `mods`
-directory while Minecraft is closed. Keep existing config, key assignments,
-worlds, packs and other mods. `config.example.json` is an example, not a file
-to overwrite your saved configuration. F10 opens the GUI on the Module list.
-PDB symbols are an optional separate download and must match the DLL.
+The experimental native resource-pack reload from R33 is **still limited**
+to its explicitly permitted disposable offline world. It is not enabled
+generally for multiplayer or production worlds.
 
-The binary package's README and build information identify the exact public
-source commit, tag and DLL/PDB hashes.
+Extract the client ZIP's PraxisCompanion/ directory into the launcher's
+mods/ folder with Minecraft closed. Preserve your current config.json,
+worlds, server data, texture packs and other mods. Optional matching PDB
+symbols are provided separately.
 
-## Build
+## Build and licensing
 
-See [SOURCE_BUILD.md](../SOURCE_BUILD.md). Build from the `companion` project; the
-root `src` contains only shared font and kiero build inputs. The prior flat
-project layout is retired in this version.
+Build in the companion/ subdirectory with xmake and LeviLamina 26.51.5.
+See ../SOURCE_BUILD.md and ../RELEASE_POLICY.md.
+GitHub: https://github.com/rometet/praxis
+Source tag: v0.1.4-rc.1 (exact source SHA and DLL hashes in GitHub Release
+and downloadable BUILD_INFO.json).
 
-## Source and licenses
-
-Canonical source: https://github.com/rometet/praxis
-
-The immutable `v0.1.2-rc.1` tag identifies the release source. The Companion,
-third-party preferred-source and symbol archives are supplied with the
-release. See [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md),
-[LICENSE_COMBINED.txt](LICENSE_COMBINED.txt) and
-[RELEASE_POLICY.md](../RELEASE_POLICY.md).
+Preserve GPL-3.0, MPL 2.0 and third-party license notices in LICENSE,
+LICENSE_COMBINED.txt, THIRD_PARTY_NOTICES.md, ../licenses/ and
+../THIRD_PARTY_NOTICES.md.
+Praxis Client is not affiliated with Mojang or Microsoft.

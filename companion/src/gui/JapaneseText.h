@@ -57,8 +57,9 @@ inline std::vector<std::string> informationLinesJa(InformationSnapshot const& sa
             line=std::string(informationDisplayNames[i])+": "+value;break;
         }
     }
-    auto extra=inspectorLinesJa(sample.inspector,options.inspector);
-    lines.insert(lines.end(),extra.begin(),extra.end());
+    // Inspector observations are consumed by the F10 block-compare page.
+    // Never append serialized block/NBT text to the in-game information HUD:
+    // the full state is often thousands of characters and obscures gameplay.
     return lines;
 }
 // Translate owned UI status text at presentation, never the worker's state,

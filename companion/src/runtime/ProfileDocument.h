@@ -8,7 +8,7 @@ namespace praxis::companion {
 // Owners adding typed module fields must extend this descriptor list; untyped
 // future fields already remain opaque in the source/destination documents.
 struct ProfileFieldOwner {char const* field;unsigned slot;};
-inline constexpr std::array<ProfileFieldOwner,23> featureProfileFields{{
+inline constexpr std::array<ProfileFieldOwner,25> featureProfileFields{{
     {"timeChanger",7},{"weatherChanger",8},{"hitboxOptions",9},
     {"toolProtection",10},{"toolProtectionOptions",10},
     {"weaponSwitch",11},{"weaponSwitchOptions",11},
@@ -18,7 +18,8 @@ inline constexpr std::array<ProfileFieldOwner,23> featureProfileFields{{
     {"freelook",20},{"freelookOptions",20},
     {"freeCamera",21},{"freeCameraOptions",21},
     {"inventoryHud",23},{"inventoryHudOptions",23},
-    {"antiEffect",24},{"antiEffectOptions",24},{"offhandSwap",26},{"weatherOptions",8}}};
+    {"antiEffect",24},{"antiEffectOptions",24},{"offhandSwap",26},{"weatherOptions",8},
+    {"flexibleBlockPlacement",27},{"flexiblePlacementOptions",27}}};
 static_assert(featureProfileFields.size()<=featureRegistryBits,
     "Each typed profile owner must have a representable history bit");
 inline void recordProfileEdits(ProfileEditHistory& history,ConfigJson const& before,ConfigJson const& after) {

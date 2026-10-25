@@ -53,7 +53,7 @@ struct RuntimeConfig {
     // Per-module toggle bindings. 0 means unbound. Zoom's hold/action key is
     // intentionally separate so enabling/disabling the module does not fight
     // the zoom action itself.
-    std::vector<int> keybinds=std::vector<int>(featureCount,0);
+    std::vector<int> keybinds=[] { std::vector<int> result(featureCount,0); result[static_cast<unsigned>(Feature::FlexibleBlockPlacement)]='P'; return result; }();
     std::vector<unsigned> keybindModifiers=std::vector<unsigned>(featureCount,anyModifiers);
     unsigned zoomModifiers{anyModifiers},mapToggleModifiers{anyModifiers};
     int zoomKey = 'C';
@@ -91,9 +91,12 @@ struct RuntimeConfig {
     InventoryHudOptions inventoryHudOptions{};
     bool antiEffect{};
     AntiEffectOptions antiEffectOptions{};
+    bool flexibleBlockPlacement{};
+    FlexiblePlacementOptions flexiblePlacementOptions{};
 };
 
 inline bool validRuntimeConfig(RuntimeConfig const& config) noexcept {
+    auto validFlexibleKey = [](int key) { return key >= 0 && key <= 255 && key != 0x79 && key != 0x7A; };
     return config.version == 2
         && config.featureSlotSchema == featureSlotSchema
         && config.keybinds.size()>=featureCount && config.keybinds.size()<=featureRegistryBits
@@ -144,7 +147,13 @@ inline bool validRuntimeConfig(RuntimeConfig const& config) noexcept {
         && config.guiStyle.outlineSize >= 0.0f && config.guiStyle.outlineSize <= 6.0f
         && config.guiStyle.fontFamily >= 0 && config.guiStyle.fontFamily <= 2
         // All 32 persisted favorite bits are representable; only owned bits have UI actions.
-        && validShulkerPreviewOptions(config.shulkerOptions);
+        && validShulkerPreviewOptions(config.shulkerOptions)
+        && validFlexibleKey(config.flexiblePlacementOptions.rotationKey)
+        && validFlexibleKey(config.flexiblePlacementOptions.offsetKey)
+        && validFlexibleKey(config.flexiblePlacementOptions.adjacentKey)
+        && validModifiers(config.flexiblePlacementOptions.rotationModifiers)
+        && validModifiers(config.flexiblePlacementOptions.offsetModifiers)
+        && validModifiers(config.flexiblePlacementOptions.adjacentModifiers);
 }
 
 inline Settings runtimeSettings(RuntimeConfig const& config, RenderMask available,
@@ -190,6 +199,9 @@ inline Settings runtimeSettings(RuntimeConfig const& config, RenderMask availabl
     // Slot23 is retired even when an old config enables it. Keep its stored data.
     result.enabled[unsigned(Feature::InventoryHUD)]=false;
     result.enabled[unsigned(Feature::AntiEffect)]=config.antiEffect&&(available&antiEffectPasses);
+    result.enabled[static_cast<unsigned>(Feature::FlexibleBlockPlacement)] = config.flexibleBlockPlacement
+        && (availableFeatureMask & featureRegistryBit(static_cast<unsigned>(Feature::FlexibleBlockPlacement))) != 0;
+    result.flexiblePlacement = config.flexiblePlacementOptions;
     result.hitboxOptions=config.hitboxOptions;
     result.enabled[static_cast<unsigned>(Feature::Hitbox)]=config.hitboxOptions.enabled;
     result.zoomOptions = config.zoomOptions;

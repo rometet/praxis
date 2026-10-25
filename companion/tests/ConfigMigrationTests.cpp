@@ -9,7 +9,7 @@ using Json=nlohmann::ordered_json;
 int main(){
  unsigned checks{};auto check=[&](bool v,char const* m){++checks;if(!v)throw std::runtime_error(m);};
  try {
-   check(featureCount==27 && static_cast<unsigned>(Feature::WeatherChanger)==8
+   check(featureCount==28 && static_cast<unsigned>(Feature::WeatherChanger)==8
    && static_cast<unsigned>(Feature::Hitbox)==9 && static_cast<unsigned>(Feature::ToolProtection)==10
    && static_cast<unsigned>(Feature::WeaponSwitch)==11 && static_cast<unsigned>(Feature::HandRestock)==12
    && static_cast<unsigned>(Feature::InventorySort)==13 && static_cast<unsigned>(Feature::InventoryTransfer)==14,"fixed slot contract");
@@ -36,6 +36,8 @@ int main(){
    check(normalizeFeatureKeybinds(document),"legacy/current layout accepted");
    check(document["keybinds"].size()==std::max(featureCount,length) && document["keybindModifiers"].size()==std::max(featureCount,length),"all arrays padded consistently");
    legacy.keybinds.resize(std::max(featureCount,length),0);legacy.keybindModifiers.resize(std::max(featureCount,length),8);
+   if(length<=static_cast<unsigned>(Feature::FlexibleBlockPlacement))
+    legacy.keybinds[static_cast<unsigned>(Feature::FlexibleBlockPlacement)]='P';
    RuntimeConfig loaded;auto merged=typedConfigDocument(document,ll::reflection::serialize<Json>(loaded).value());
    ll::reflection::deserialize(loaded,merged).value();
    check(validRuntimeConfig(loaded) && ll::reflection::serialize<Json>(loaded).value()==ll::reflection::serialize<Json>(legacy).value(),"full SDK roundtrip preserves all feature data, modifiers and favorites");
@@ -45,6 +47,16 @@ int main(){
    check(!runtimeSettings(loaded,kAllRenderPasses,0).on(Feature::WeatherChanger),"Weather unavailable backend does not publish enable");
   }
   auto good=ll::reflection::serialize<Json>(expected).value();
+  auto legacy27=good;legacy27["keybinds"]=std::vector<int>(27,0);legacy27["keybindModifiers"]=std::vector<unsigned>(27,8);
+  legacy27["keybinds"][0]=71;legacy27["keybinds"][26]=72;
+  check(normalizeFeatureKeybinds(legacy27)&&legacy27["keybinds"][0]==71&&legacy27["keybinds"][26]==72
+   &&legacy27["keybinds"][static_cast<unsigned>(Feature::FlexibleBlockPlacement)]=='P',
+   "27-slot legacy config receives P only in the newly absent FlexiblePlacement slot");
+  auto explicitZero=good;explicitZero["keybinds"]=std::vector<int>(featureCount,0);
+  explicitZero["keybindModifiers"]=std::vector<unsigned>(featureCount,8);
+  check(normalizeFeatureKeybinds(explicitZero)
+   &&explicitZero["keybinds"][static_cast<unsigned>(Feature::FlexibleBlockPlacement)]==0,
+   "explicit zero in the new FlexiblePlacement slot remains unbound");
   auto opaque=good;opaque["futureModule"]={{"enabled",true},{"nullable",nullptr}};
   check(validConfigDocument(typedConfigDocument(opaque,good),good),"unknown fields stay out of typed decoder");
   Json destination={{"futureModule",{{"destinationOnly",42}}}};overlayProfileFields(destination,opaque);

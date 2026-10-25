@@ -16,6 +16,7 @@
 #include "platform/HandRestock.h"
 #include "platform/InventoryRequest.h"
 #include "platform/InventoryActions.h"
+#include "platform/FlexiblePlacement.h"
 #include "render/Renderer.h"
 #include "runtime/Runtime.h"
 #include "gui/GuiBridge.h"
@@ -257,7 +258,7 @@ LL_TYPE_INSTANCE_HOOK(TickHook,ll::memory::HookPriority::Normal,LocalPlayer,
  VisualWeatherScope nonWeatherRendering(false);
  cameraCandidateBeforeTick(*this);
  origin();
- if(lease.admitted()){updateWorld(*this);cameraCandidateTick(*this);observeToolProtection(*this);serviceInventoryActions();serviceHandRestock();}
+ if(lease.admitted()){updateWorld(*this);tickFlexiblePlacement(*this);cameraCandidateTick(*this);observeToolProtection(*this);serviceInventoryActions();serviceHandRestock();}
 }
 // SDK-typed, local FreeCamera callbacks. Lamium v0.1.8 is a behavior reference;
 // these handlers share Praxis admission/lease and do not change other owners.
@@ -358,6 +359,7 @@ bool installNative(){
  if(!worldExitListener){removeNative();return false;}
  if(!startInformationRuntime()){removeNative();return false;}
  if(!installShulkerPreview()){removeNative();return false;}
+ if(!installFlexiblePlacement()){removeNative();return false;}
  RenderMask masks=passBit(RenderPass::Entities)|passBit(RenderPass::Items)|passBit(RenderPass::BlockEntities)|
   passBit(RenderPass::Hud)|passBit(RenderPass::Particles)|passBit(RenderPass::Sky)|passBit(RenderPass::Weather)|passBit(RenderPass::Fog)|passBit(RenderPass::Lightning);
  masks|=inspectEffectPatches();availableRenderPasses.store(masks,std::memory_order_release);
@@ -397,10 +399,12 @@ bool removeNative()noexcept{
  bool handRestockRemoved=removeHandRestock();
  bool inventoryActionsRemoved=removeInventoryActions();
  bool inventoryRequestsRemoved=inventory::removeRequests();
+ bool flexiblePlacementRemoved=removeFlexiblePlacement();
  bool ok=shutdownGuiBackend();
  if(!timeChangerRemoved||!weatherChangerRemoved)ok=false;
  if(!toolProtectionRemoved)ok=false;
  if(!handRestockRemoved||!inventoryRequestsRemoved||!inventoryActionsRemoved)ok=false;
+ if(!flexiblePlacementRemoved)ok=false;
  if(!stopInformationRuntime())ok=false;
  if(!removeShulkerPreview())ok=false;
  if(zoomMouseListener){
@@ -426,6 +430,7 @@ bool removeNative()noexcept{
  if(nativeLifetime.retained())ok=false;
  shutdownMap();
  if(!stopConfigStorage())ok=false;
- resetFullbrightReadiness();runtimeReady=false;inputAllowed=false;return ok;
-}
+  resetFullbrightReadiness();runtimeReady=false;inputAllowed=false;return ok;
+ }
+NativeHookLifetime& nativeHookLifetime() noexcept { return nativeLifetime; }
 }

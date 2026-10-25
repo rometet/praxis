@@ -2,7 +2,18 @@
 
 Minecraft Bedrock **1.26.51.01** · Windows x64 · LeviLamina Client **26.51.5**.
 
-The current experimental source line is **v0.1.3-rc.1 (Praxis R33)**. This prerelease retains the features of [v0.1.2-rc.1](https://github.com/rometet/praxis/releases/tag/v0.1.2-rc.1) and adds native in-world resource-pack reload within an exact **disposable offline test world**.
+The current experimental source line is **v0.1.4-rc.1 (Praxis R34)**. This prerelease builds on [R33](https://github.com/rometet/praxis/releases/tag/v0.1.3-rc.1), adding the Flexible Block Placement client-side feature, compact UI, and coexistence tools. **A compatible LHolo build with the flexible-placement ABI v2 is required for transformed placement.** The resource-pack native-reload restriction from R33 remains unchanged.
+
+## Changes in v0.1.4-rc.1
+
+- Flexible Block Placement: Rotation (R), Offset (G), Adjacent (H), and combined modes. Press **P** to toggle the feature. Position and support are validated before a native LHolo placement transaction; no server add-on is required.
+- Fixed the **G key conflict between Offset and Freelook**. Flexible Placement now owns any overlapping activation chord; rebind Freelook to a non-conflicting key to use both features.
+- Improved floor-stair support, placement hit normalization, interactive block click protection, and diagnostics.
+- Simplified F10 navigation, HUD/tool interfaces, and Lamium coexistence controls.
+- The experimental native resource-pack reload remains **restricted to the specified disposable offline test world**, as in R33.
+- Local tests and build pass; full Tweakeroo parity and all remote-server placement acceptance cases are not claimed.
+
+
 
 **Not a general-purpose resource-pack hot-reload release.** The path is hard-gated to the local test world with directory ID PraxisLevelPackOfflineR17 and display name Praxis Level RP Offline Test R17. It is disabled for other worlds, multiplayer, mandatory server packs, multiple simultaneous edits and complex shader/behavior packs.
 
