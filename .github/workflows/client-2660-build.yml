@@ -15,6 +15,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: v0.1.5-rc.1
       - name: Prepare LLVM clang-cl
         shell: pwsh
         run: |
@@ -35,7 +37,7 @@ jobs:
           }
           if (Get-Command clang-cl.exe -ErrorAction SilentlyContinue) { exit 0 }
           throw 'LLVM clang-cl.exe not available on Windows runner.'
-      - uses: xmake-io/setup-xmake@v1
+      - uses: xmake-io/github-action-setup-xmake@v1
         with:
           xmake-version: 'latest'
       - name: Configure release client
