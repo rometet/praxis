@@ -1,6 +1,9 @@
 name: PraxisCompanion 26.60 Windows build
 
 on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/client-2660-build.yml']
   workflow_dispatch:
 
 permissions:
