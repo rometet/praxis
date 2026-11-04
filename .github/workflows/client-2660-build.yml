@@ -45,13 +45,31 @@ jobs:
         working-directory: companion
         run: |
           xmake f -p windows -a x64 -m release --target_type=client -y
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host 'Dependency configuration failed. Collecting package build diagnostics:'
+            $logRoot = Join-Path $env:LOCALAPPDATA '.xmake\cache\packages'
+            Get-ChildItem $logRoot -Recurse -Filter install.txt -File -ErrorAction SilentlyContinue |
+              Sort-Object LastWriteTime -Descending | Select-Object -First 4 | ForEach-Object {
+                Write-Host "PACKAGE LOG: $($_.FullName)"
+                Get-Content $_.FullName -Tail 130 -ErrorAction SilentlyContinue
+              }
+            exit $LASTEXITCODE
+          }
       - name: Build PraxisCompanion
         shell: pwsh
         working-directory: companion
         run: |
           xmake b -j 4 PraxisCompanion
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host 'Dependency configuration failed. Collecting package build diagnostics:'
+            $logRoot = Join-Path $env:LOCALAPPDATA '.xmake\cache\packages'
+            Get-ChildItem $logRoot -Recurse -Filter install.txt -File -ErrorAction SilentlyContinue |
+              Sort-Object LastWriteTime -Descending | Select-Object -First 4 | ForEach-Object {
+                Write-Host "PACKAGE LOG: $($_.FullName)"
+                Get-Content $_.FullName -Tail 130 -ErrorAction SilentlyContinue
+              }
+            exit $LASTEXITCODE
+          }
           if (-not (Test-Path 'build\windows\x64\release\PraxisCompanion.dll')) {
             throw 'DLL was not produced'
           }
