@@ -17,6 +17,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: v0.1.5-rc.1
+      # Match the upstream LeviLamina client Windows build toolchain.
+      - uses: ZhongRuoyu/setup-llvm@v0
+        with:
+          llvm-version: '22'
       - name: Prepare LLVM clang-cl
         shell: pwsh
         run: |
@@ -40,11 +44,22 @@ jobs:
       - uses: xmake-io/github-action-setup-xmake@v1
         with:
           xmake-version: 'latest'
+      - uses: actions/cache@v4
+        with:
+          path: ~/AppData/Local/.xmake
+          key: praxis-2660-xmake-${{ runner.os }}-llvm22-${{ hashFiles('companion/xmake.lua') }}
+          restore-keys: |
+            praxis-2660-xmake-${{ runner.os }}-llvm22-
       - name: Configure release client
         shell: pwsh
         working-directory: companion
         run: |
           xmake f -p windows -a x64 -m release --target_type=client -y
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning 'Retrying transient dependency download/install failure once.'
+            Start-Sleep -Seconds 10
+            xmake f -p windows -a x64 -m release --target_type=client -y
+          }
           if ($LASTEXITCODE -ne 0) {
             Write-Host 'Dependency configuration failed. Collecting package build diagnostics:'
             $logRoot = Join-Path $env:LOCALAPPDATA '.xmake\cache\packages'
