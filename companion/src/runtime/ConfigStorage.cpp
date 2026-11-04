@@ -23,17 +23,25 @@ namespace praxis::companion {
 namespace {
 enum class Operation { Save, Load, Delete, Refresh };
 struct Job { Operation operation; std::filesystem::path path; RuntimeConfig config{}; std::uint64_t revision{}; bool shutdownRetried{}; std::filesystem::path pendingFile; bool pendingReady{}; std::string sourceDocument; ProfileEditHistory edits{}; };
-std::mutex storageMutex;
-std::condition_variable storageChanged;
-std::deque<Job> storageJobs;
-std::deque<Job> failedSaves;
+// On the 26.60 client a native detour may retain/pin this DLL until process
+// termination, even if disable() cannot complete. An in-flight storage
+// worker is then still joinable during CRT module-detach; the destructor of
+// a namespace-static std::thread calls std::terminate (observed 2026-11-03
+// 07:07:17). Keep its synchronization and owned queue/state together as
+// process-lifetime allocations. Normal stopConfigStorage() still joins the
+// thread before any user-requested module retirement. On forced process
+// exit, the OS reclaims these without running destructors against a worker.
+std::mutex& storageMutex = *new std::mutex;
+std::condition_variable& storageChanged = *new std::condition_variable;
+std::deque<Job>& storageJobs = *new std::deque<Job>;
+std::deque<Job>& failedSaves = *new std::deque<Job>;
 bool storageInFlight{};
-std::thread storageWorker;
+std::thread& storageWorker = *new std::thread;
 bool storageStopping{};
-std::filesystem::path profilesDirectory;
-std::vector<std::string> profileNames;
-std::optional<LoadedProfile> loadedProfile;
-std::string storageStatus = "Storage not started";
+std::filesystem::path& profilesDirectory = *new std::filesystem::path;
+std::vector<std::string>& profileNames = *new std::vector<std::string>;
+std::optional<LoadedProfile>& loadedProfile = *new std::optional<LoadedProfile>;
+std::string& storageStatus = *new std::string("Storage not started");
 
 bool allowedName(std::string const& name) {
     return !name.empty() && name.size() <= 48 && std::all_of(name.begin(), name.end(), [](unsigned char c) {

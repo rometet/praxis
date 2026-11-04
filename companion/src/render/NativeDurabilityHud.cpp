@@ -61,7 +61,7 @@ void drawNativeDurabilityHud(ll::event::AfterUIRenderEvent& event) {
     auto const& transform=o->hudLayouts.panels[static_cast<unsigned>(HudId::Equipment)];
     auto placed=placeHud(transformHud({layout.x,layout.y,layout.width,layout.height},transform,width,height),width,height,obstacles);
     layout.x=placed.x;layout.y=placed.y;
-    auto& font=ui.mDebugTextFontHandle->getFont();
+    auto const& fontPtr=ui.mDebugTextFontHandle->mDefaultFont.get();if(!fontPtr)return;auto& font=*fontPtr;
     float const logicalLineHeight=font.getWrapHeight();
     if(!std::isfinite(logicalLineHeight)||logicalLineHeight<=0)return;
     auto area=[&](float x,float y,float w,float h){return RectangleArea{x*lx,(x+w)*lx,y*ly,(y+h)*ly};};

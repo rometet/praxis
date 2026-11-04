@@ -108,15 +108,6 @@ void prune(int x,int y,int z,RedstoneOverlayOptions const& options) {
     meshDirty=true;
 }
 
-bool exactNativeBlockType(BlockType const& type, void** expectedVtable) noexcept {
-    // The pinned Windows SDK exposes the vanilla class vftables. Read only
-    // the object's vptr and require an exact match before a typed downcast;
-    // Minecraft RTTI is not required and custom block types fail closed.
-    void** actualVtable{};
-    std::memcpy(&actualVtable, static_cast<void const*>(&type), sizeof(actualVtable));
-    return expectedVtable && actualVtable == expectedVtable;
-}
-
 void scan(BlockSource& source,RedstoneOverlayOptions const& options) {
     std::size_t const side=static_cast<std::size_t>(options.range*2+1);
     std::size_t const total=side*side*lightVerticalOffsets.size();
@@ -147,11 +138,9 @@ void scan(BlockSource& source,RedstoneOverlayOptions const& options) {
                 if(actor && actor->getType()==BlockActorType::Comparator)
                     power=static_cast<ComparatorBlockActor const*>(actor)->mOutput;
             } else if(isRedstoneRepeater(name)) {
-                if(exactNativeBlockType(type,RepeaterBlock::$vftable()))
-                    power=static_cast<RepeaterBlock const&>(type).mOn?15:0;
+                power=(name=="powered_repeater"||name=="minecraft:powered_repeater")?15:0;
             } else if(isRedstoneTorch(name)) {
-                if(exactNativeBlockType(type,RedstoneTorchBlock::$vftable()))
-                    power=static_cast<RedstoneTorchBlock const&>(type).mOn?15:0;
+                power=(name=="redstone_torch"||name=="minecraft:redstone_torch")?15:0;
             }
         } catch (...) {
             ++stateReadFailures;

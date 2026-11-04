@@ -12,6 +12,8 @@
 #include "mc/client/game/ClientInstance.h"
 #include "mc/client/player/LocalPlayer.h"
 #include "mc/client/gui/screens/models/ClientInstanceScreenModel.h"
+#include "mc/client/gui/screens/controllers/HudScreenController.h"
+#include "mc/client/gui/screens/ScreenView.h"
 #include "mc/world/containers/managers/controllers/HudContainerManagerController.h"
 #include "mc/world/containers/managers/models/ContainerManagerModel.h"
 #include "mc/world/containers/SlotData.h"
@@ -188,7 +190,7 @@ bool moveMainInventory(LocalPlayer& player,HandSnapshot const& before,HandSnapsh
         ~AuditScope(){mainMoveAudit=nullptr;}
     } auditScope{audit};
     {
-        auto requestScope=ItemStackNetManagerBase::_tryBeginClientLegacyTransactionRequest(&player);
+        auto requestScope=base->_tryBeginClientLegacyTransactionRequest();
         if(!base->mLegacyTransactionRequestId->mRawId||!audit.valid||audit.seen)return false;
         // These normal SDK setters run inside vanilla's request scope. Vanilla
         // records both actions and owns prediction, dispatch and server rollback.
@@ -199,9 +201,23 @@ bool moveMainInventory(LocalPlayer& player,HandSnapshot const& before,HandSnapsh
     }
     return true;
 }
-LL_TYPE_INSTANCE_HOOK(RestockHudCapture,ll::memory::HookPriority::Normal,ClientInstanceScreenModel,
-    &ClientInstanceScreenModel::createHudContainerManagerController,std::shared_ptr<HudContainerManagerController>) {
-    auto controller=origin();std::lock_guard lock(mutex);cancel();clearObservation();diagnosticStages=0;hud=controller;faulted=false;return controller;
+// LeviLamina 26.60: the old ClientInstanceScreenModel factory has gone.
+// Observe the HUD controller already owned by the validated screen view,
+// instead of trying to hook a stale native address.
+void observeHudController(ll::event::AfterUIRenderEvent& event) {
+    auto& view=event.screenView();
+    auto const name=view.getScreenName();
+    if(name!="hud_screen" && name!="in_game_play_screen")return;
+    auto screen=std::dynamic_pointer_cast<HudScreenController>(
+        std::shared_ptr<ScreenController>(view.mController));
+    if(!screen)return;
+    std::shared_ptr<HudContainerManagerController> current=screen->mHudScreenManagerController;
+    if(!current)return;
+    std::lock_guard lock(mutex);
+    if(hud.lock()!=current){
+        cancel();clearObservation();diagnosticStages=0;faulted=false;
+        hud=current;
+    }
 }
 LL_TYPE_INSTANCE_HOOK(RestockNativeAction,ll::memory::HookPriority::Normal,InventoryTransactionManager,
     &InventoryTransactionManager::addAction,void,InventoryAction const& action,bool forceBalanced) {
@@ -234,7 +250,7 @@ LL_TYPE_INSTANCE_HOOK(RestockDropCancel,ll::memory::HookPriority::Normal,Player,
 }
 struct Hook {int(*add)();bool(*remove)();bool installed{};};
 template<class T>Hook hook(){return{[]{return T::hook();},[]{return T::unhook();},false};}
-Hook hooks[]{hook<RestockHudCapture>(),hook<RestockNativeAction>(),hook<RestockUse>(),hook<RestockUseOn>(),hook<RestockCompletedUse>(),hook<RestockDropCancel>()};
+Hook hooks[]{hook<RestockNativeAction>(),hook<RestockUse>(),hook<RestockUseOn>(),hook<RestockCompletedUse>(),hook<RestockDropCancel>()};
 }
 void tickHandRestock(LocalPlayer& player) noexcept {
     std::lock_guard lock(mutex);
@@ -371,10 +387,39 @@ bool installHandRestock() {
     for(auto& h:hooks)if(!h.installed){if(h.add()!=0){removeHandRestock();return false;}h.installed=true;}
     try {
         if(!uiListener)uiListener=ll::event::EventBus::getInstance().emplaceListener<ll::event::AfterUIRenderEvent>(
-            [](ll::event::AfterUIRenderEvent& event) {
-                auto const name=event.screenView().getScreenName();
-                if(name!="hud_screen"&&name!="in_game_play_screen")return;
-                if(auto player=event.uiRenderContext().mClient.getLocalPlayer())tickHandRestock(*player);
+            [](ll::event::AfterUIRenderEvent& event) noexcept {
+                // Full exception isolation, including settings() and event
+                // access. Prevent the 26.60 world-entry noexcept termination.
+                try {
+                    if(!runtimeReady.load(std::memory_order_acquire)
+                       || !inputAllowed.load(std::memory_order_acquire))return;
+                    auto const requested=settings();
+                    if(!requested || (!requested->on(Feature::HandRestock)
+                        && !requested->on(Feature::OffhandSwap)))return;
+                    auto& client=event.uiRenderContext().mClient;
+                    if(client.getClientInstanceState()!=ClientInstanceState::Playing)return;
+                    auto* player=client.getLocalPlayer();
+                    if(!player)return;
+                    auto& view=event.screenView();
+                    if(!view.mHasFocus || view.mIsEntering || view.mIsExiting || view.mIsTerminating)return;
+                    auto const name=view.getScreenName();
+                    if((name!="hud_screen"&&name!="in_game_play_screen")
+                        || client.getTopScreenName()!=name)return;
+                    if(!view.mController)return;
+                    observeHudController(event);
+                    tickHandRestock(*player);
+                } catch(std::exception const& error) {
+                    try {
+                        auto message=std::string("HandRestock HUD observer failure: ")+error.what();
+                        logGuiError(message.c_str());
+                    } catch(...) {}
+                    operationStatus=2;
+                    {std::lock_guard lock(mutex);faulted=true;cancel();clearObservation();}
+                } catch(...) {
+                    try {logGuiError("HandRestock HUD observer exception; refusing inventory action");} catch(...) {}
+                    operationStatus=2;
+                    {std::lock_guard lock(mutex);faulted=true;cancel();clearObservation();}
+                }
             });
     } catch(...) {removeHandRestock();return false;}
     if(!uiListener){removeHandRestock();return false;}

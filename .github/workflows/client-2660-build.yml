@@ -1,0 +1,63 @@
+name: PraxisCompanion 26.60 Windows build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare LLVM clang-cl
+        shell: pwsh
+        run: |
+          $paths = @(
+            'C:\Program Files\LLVM\bin',
+            'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\x64\bin',
+            'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\bin',
+            'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\Llvm\x64\bin',
+            'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Tools\Llvm\bin'
+          )
+          foreach ($path in $paths) {
+            if (Test-Path (Join-Path $path 'clang-cl.exe')) {
+              $env:GITHUB_PATH | Out-Null
+              Add-Content -Path $env:GITHUB_PATH -Value $path
+              Write-Host "clang-cl: $path"
+              exit 0
+            }
+          }
+          if (Get-Command clang-cl.exe -ErrorAction SilentlyContinue) { exit 0 }
+          throw 'LLVM clang-cl.exe not available on Windows runner.'
+      - uses: xmake-io/setup-xmake@v1
+        with:
+          xmake-version: 'latest'
+      - name: Configure release client
+        shell: pwsh
+        working-directory: companion
+        run: |
+          xmake f -p windows -a x64 -m release --target_type=client -y
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build PraxisCompanion
+        shell: pwsh
+        working-directory: companion
+        run: |
+          xmake b -j 4 PraxisCompanion
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path 'build\windows\x64\release\PraxisCompanion.dll')) {
+            throw 'DLL was not produced'
+          }
+      - name: Show DLL checksum
+        shell: pwsh
+        run: |
+          Get-FileHash 'companion\build\windows\x64\release\PraxisCompanion.dll' -Algorithm SHA256 | Format-List
+      - uses: actions/upload-artifact@v4
+        with:
+          name: praxis-2660-release-build
+          if-no-files-found: error
+          path: |
+            companion/build/windows/x64/release/PraxisCompanion.dll
+            companion/build/windows/x64/release/PraxisCompanion.pdb

@@ -11,8 +11,12 @@
 namespace praxis::companion {
 ResourcePackAction drawResourcePackApplyControls(packs::PackPlan const& plan,packs::TitlePackView const& backend){
     bool allowed=plan.validation==packs::ApplyResult::Valid&&backend.available&&!backend.busy&&backend.current.known;
+    // This Windows client release does not provide a working in-world texture reload.
+    // Keep browsing available, but do not advertise a broken apply/reload button.
+    if(backend.inWorld)allowed=false;
     bool reloadAllowed=backend.available&&!backend.busy&&backend.current.known&&backend.canReload
         &&(backend.inWorld||(allowed&&!plan.proposed.empty()));
+    if(backend.inWorld)reloadAllowed=false;
     bool changes=plan.priorityChanged||!plan.disabledCandidates.empty()||std::any_of(plan.proposed.begin(),plan.proposed.end(),[](auto const& p){return p.change==packs::ProposalChange::Enable;});
     ImGui::BeginDisabled(!allowed||!changes);
     bool apply=ImGui::Button("選択を適用");ImGui::EndDisabled();
@@ -27,6 +31,8 @@ ResourcePackAction drawResourcePackApplyControls(packs::PackPlan const& plan,pac
 void drawResourcePackPage(packs::AppliedStackView const& supplied){
     struct Drain {~Drain(){packs::drainPackDiagnostics();}} drain;
     auto backend=packs::titlePackView();auto const& current=supplied.known?supplied:backend.current;
+    // Preserve the original 26.51 in-world pack selection and Apply / Reload controls.
+    // Native 26.60 admission remains responsible for disabling unsupported operations.
     static char root[2048]{};
     static packs::Selection selection;
     static bool proposed{};
@@ -44,6 +50,8 @@ void drawResourcePackPage(packs::AppliedStackView const& supplied){
     if(selection.generation!=catalog.generation)selection.reconcile(catalog);
     if(!proposed&&catalog.complete&&current.known)fromCurrent();
     ImGui::TextUnformatted("リソースパック");
+    ImGui::TextColored({1.0f,0.72f,0.28f,1.0f},
+        "26.60.05: ワールド内のリソースパック即時反映は未動作です。再起動後に通常のMinecraft設定から適用してください。");
     if(backend.r24AuthorizedClone)
         ImGui::TextWrapped("パックを選択して、Minecraftの全リソースを再読み込みできます（複製ワールド限定）。");
     else
@@ -52,26 +60,63 @@ void drawResourcePackPage(packs::AppliedStackView const& supplied){
         ImGui::TextWrapped("「現在の有効構成を再読込」は候補を適用せず、現在有効なファイルだけを再読込します。新規・削除ファイルの検出や非対応カテゴリの反映には再入場が必要です。構成変更はこのセッションに適用します。保存には通常のグローバルリソース設定を使用してください。");
     if(!backend.r24AuthorizedClone)
         ImGui::TextWrapped("texture フォルダを含むローカルパックを候補にできます。字体・shader・material・model・UI・behavior・依存・subpack はこの候補では適用できません。必須 pack は通常の Minecraft の管理機能を使用してください。");
-    if(!root[0]&&!backend.folders[0].empty())
-        std::snprintf(root,sizeof(root),"%s",backend.folders[0].c_str());
-    // Open the test UI with the local catalog ready when possible.
-    // Limit automatic scanning to once per process; manual refresh remains.
-    static bool r27AutoScanRequested{};
-    if(backend.r24AuthorizedClone&&!r27AutoScanRequested
-        &&!catalog.complete&&!browser.busy&&root[0]){
-        r27AutoScanRequested=true;
+    // The old R24-only bootstrap never populated ordinary 26.60 worlds.
+    // This is UI discovery only; native User/Dev ownership, pack signature
+    // and the safety admission remain checked by the engine before apply.
+    static std::string automaticRoot;
+    static std::string autoScanAttempted;
+    static bool pathEditedByUser{};
+    auto suggested=packs::suggestedLocalPackRoot(backend.folders[0],false);
+    auto development=packs::suggestedLocalPackRoot(backend.folders[1],true);
+    if(!pathEditedByUser&&!suggested.empty()&&automaticRoot!=suggested){
+        std::snprintf(root,sizeof(root),"%s",suggested.c_str());
+        automaticRoot=suggested;
+        autoScanAttempted.clear();
+        packs::packDiagnostic("RESOURCEPACK_UI event=autopath_selected source=%u",
+            unsigned(!backend.folders[0].empty()));
+    }
+    // Initial scan for every eligible installed 26.60 local folder,
+    // independent of the old R24 clone, owner hook registration and UI
+    // apply readiness. A failed scan is never retried every frame.
+    if(!pathEditedByUser&&!automaticRoot.empty()&&root[0]
+       &&autoScanAttempted!=automaticRoot&&!browser.busy
+       &&(!catalog.complete||catalog.root!=std::filesystem::path(
+           std::u8string_view(reinterpret_cast<char8_t const*>(automaticRoot.data()),
+                              automaticRoot.size())))){
+        autoScanAttempted=automaticRoot;
         bool accepted=packs::startBrowser()
             &&packs::requestScan(std::filesystem::path(
                 std::u8string_view(reinterpret_cast<char8_t const*>(root))));
-        packs::packDiagnostic("RESOURCEPACK_R27 event=auto_catalog_scan accepted=%u",
-            unsigned(accepted));
+        packs::packDiagnostic("RESOURCEPACK_UI event=auto_catalog_scan accepted=%u native_root=%u",
+            unsigned(accepted),unsigned(!backend.folders[0].empty()));
     }
     ImGui::BeginDisabled(browser.busy);
-    ImGui::SetNextItemWidth(-1);ImGui::InputTextWithHint("##pack_root","Minecraft が認識しているローカル pack フォルダ",root,sizeof(root));
-    if(!backend.folders[0].empty()&&ImGui::Button("通常の場所"))std::snprintf(root,sizeof(root),"%s",backend.folders[0].c_str());
+    ImGui::SetNextItemWidth(-1);
+    if(ImGui::InputTextWithHint("##pack_root","Minecraft ローカル resource_packs",
+                              root,sizeof(root)))
+        pathEditedByUser=true;
+    if(!suggested.empty()&&ImGui::Button("通常の場所")){
+        std::snprintf(root,sizeof(root),"%s",suggested.c_str());
+        automaticRoot=suggested;
+        pathEditedByUser=false;
+        autoScanAttempted.clear();
+    }
+    if(!development.empty()){
+        ImGui::SameLine();
+        if(ImGui::Button("開発用の場所")){
+            std::snprintf(root,sizeof(root),"%s",development.c_str());
+            automaticRoot=development;
+            pathEditedByUser=false;
+            autoScanAttempted.clear();
+        }
+    }
     if(ImGui::Button("一覧を更新")){
-        bool accepted=packs::startBrowser()&&packs::requestScan(std::filesystem::path(std::u8string_view(reinterpret_cast<char8_t const*>(root))));
-        packs::packDiagnostic("RESOURCEPACK_UI event=scan_request accepted=%u",unsigned(accepted));
+        autoScanAttempted=std::string(root);
+        bool accepted=packs::startBrowser()
+            &&packs::requestScan(std::filesystem::path(
+                std::u8string_view(reinterpret_cast<char8_t const*>(root))));
+        packs::packDiagnostic("RESOURCEPACK_UI event=scan_request accepted=%u",
+            unsigned(accepted));
     }
     ImGui::EndDisabled();
     if(browser.busy&&ImGui::Button("一覧の読込を中止"))packs::cancelScan();
@@ -168,9 +213,11 @@ void drawResourcePackPage(packs::AppliedStackView const& supplied){
     else if(!backend.busy)ImGui::TextWrapped("%s",backend.available&&backend.current.known?packs::packApplyBlockJa(packs::PackApplyBlock::None):packs::packApplyBlockJa(backend.block));
     if(!backend.inWorld&&plan.validation==packs::ApplyResult::Valid&&plan.proposed.empty())ImGui::TextWrapped("再読込するtexture候補がありません。対象外の有効パックは、このツールでは変更しません。");
     }
+    // 26.51: only special R24 cloned test worlds show the one-pack UI.
+    // Normal local worlds use the full multi-selection priority/apply panel.
     if(backend.inWorld&&backend.r24AuthorizedClone){
         ImGui::SeparatorText("リソースパック切替");
-        ImGui::TextWrapped("オフライン複製ワールド専用。ブロック・アイテムなどの通常の画像パックを、ワールドから出ずにON/OFFできます。");
+        ImGui::TextWrapped("ローカルのテスト用ワールドで、登録済みの通常画像パック1件をワールドから出ずにON/OFFできます。対象外のLevel/サーバーパックや複数件の同時変更は行いません。");
         // User selection is independent of proposed stack manipulation.
         // Off never means "remove all"; the native owner validates one
         // ordinary registered local texture pack at the Global tail.
@@ -237,7 +284,9 @@ void drawResourcePackPage(packs::AppliedStackView const& supplied){
         }else ImGui::TextDisabled("切り替えるパックを選んでください。");
         bool canChange=chosen&&backend.available&&!backend.busy&&backend.current.known
             &&catalog.complete&&!browser.busy&&!backend.serverMultiplayer
-            &&backend.nativeGlobalIncluded&&backend.nativeLevelPackCount==2
+            &&backend.nativeGlobalIncluded
+            &&(backend.r24AuthorizedClone
+                ? backend.nativeLevelPackCount==2 : backend.nativeLevelPackCount==0)
             &&(active?toggle.canDisable:toggle.canEnable);
         ImGui::BeginDisabled(!canChange);
         char const* primaryLabel=active?"OFFにして再読み込み":"ONにして再読み込み";

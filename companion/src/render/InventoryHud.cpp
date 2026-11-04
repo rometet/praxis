@@ -61,7 +61,7 @@ void drawInventoryHudFrame(ll::event::AfterUIRenderEvent& event) {
         244*info.playerHud.offhandScale,64*info.playerHud.offhandScale},info.hudLayouts.panels[unsigned(HudId::Offhand)],width,height):HudRect{};
     std::array obstacles{paperDollBounds(lx,ly),informationHudBounds(),durabilityHudBounds(),offhand};
     panel=placeHud(panel,width,height,obstacles);float scale=panel.width/304.f;if(scale<.25f)return;
-    auto& font=ui.mDebugTextFontHandle->getFont();float lineHeight=font.getWrapHeight();if(!std::isfinite(lineHeight)||lineHeight<=0)return;
+    auto const& fontPtr=ui.mDebugTextFontHandle->mDefaultFont.get();if(!fontPtr)return;auto& font=*fontPtr;float lineHeight=font.getWrapHeight();if(!std::isfinite(lineHeight)||lineHeight<=0)return;
     auto area=[&](float x,float y,float w,float h){return RectangleArea{x*lx,(x+w)*lx,y*ly,(y+h)*ly};};
     auto text=[&](float x,float y,float w,std::string value,float size) {
         TextMeasureData measure{nativeTextScale(size*scale,ly,lineHeight),0,false,false,false,ui::TextAlignment::Left};CaretMeasureData caret{0,false};

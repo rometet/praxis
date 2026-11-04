@@ -12,7 +12,11 @@ struct AppliedStackView {
     std::vector<AppliedPack> order; // native Global priority, not server/world
 };
 inline bool matchesApplied(Pack const& p,AppliedPack const& a) noexcept {
-    return a.packType==6&&a.subpack.empty()&&p.uuid==a.uuid&&p.version==a.version;
+    // 26.60 runtime may encode an otherwise registered Resources pack
+    // as type 0. Only scanner-selectable packs with exact UUID/version and
+    // an empty native subpack name may be edited; native owner is rechecked.
+    return p.selectable&&(a.packType==6||a.packType==0)
+        &&a.subpack.empty()&&p.uuid==a.uuid&&p.version==a.version;
 }
 inline std::optional<bool> appliedTo(Pack const& p,AppliedStackView const& current) noexcept {
     if(!current.known)return std::nullopt;

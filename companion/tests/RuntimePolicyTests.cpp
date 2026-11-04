@@ -13,20 +13,24 @@ static void require(bool value, char const* message) {
 }
 int main() {
     try {
-        require(supportedLoaderVersion({26, 51, 5, false, false}), "exact loader version accepted");
+        require(supportedLoaderVersion({26, 60, 0, false, true}), "exact loader version accepted");
         constexpr std::array unsupported{
-            LoaderVersionView{26, 51, 4, false, false},
-            LoaderVersionView{26, 51, 6, false, false},
-            LoaderVersionView{26, 50, 5, false, false},
-            LoaderVersionView{27, 51, 5, false, false},
-            LoaderVersionView{26, 51, 5, true, false},
-            LoaderVersionView{26, 51, 5, false, true},
+            LoaderVersionView{26, 51, 5, false, false},
+            LoaderVersionView{26, 60, 1, false, true},
+            LoaderVersionView{26, 59, 0, false, true},
+            LoaderVersionView{27, 60, 0, false, true},
+            LoaderVersionView{26, 60, 0, true, true},
+            LoaderVersionView{26, 60, 0, false, false},
         };
         for (auto const& version : unsupported)
             require(!supportedLoaderVersion(version), "non-exact loader version rejected");
 
         RuntimeConfig config;
         require(validRuntimeConfig(config), "default config valid");
+        require(!config.fastBlockPlacement, "FastBlockPlacement defaults OFF");
+        config.fastBlockPlacement=true;
+        require(runtimeSettings(config,kAllRenderPasses).fastBlockPlacement, "independent FBP beta toggle published");
+        config.fastBlockPlacement=false;
         auto defaults = runtimeSettings(config, kAllRenderPasses);
         for (bool enabled : defaults.enabled) require(!enabled, "every feature defaults OFF");
         require(defaults.renderMask == 0, "default render mask OFF");

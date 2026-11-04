@@ -200,7 +200,18 @@ bool StandaloneGuiHost::stop() noexcept {
         }
     }
     if (ok) {
-        while (callbacks_.load(std::memory_order_acquire)) Sleep(0);
+        // Shutdown may race with a render callback. Never wait indefinitely:
+        // failure retains the module and its callback-facing resources.
+        if (hostCallbackDepth != 0) {
+            logGuiError("Standalone GUI retirement is reentrant; retaining module");
+            return false;
+        }
+        auto const deadline = GetTickCount64() + 2000;
+        while (callbacks_.load(std::memory_order_acquire) && GetTickCount64() < deadline) Sleep(1);
+        if (callbacks_.load(std::memory_order_acquire)) {
+            logGuiError("Standalone GUI callbacks did not drain; retaining module");
+            return false;
+        }
         std::lock_guard lock(frameMutex_);
         if (!releaseGraphics()) return false;
         queue_.Reset();
@@ -294,12 +305,12 @@ void StandaloneGuiHost::setVisible(bool value) noexcept {
     notifyPraxisGuiVisibility(value);
     Renderer::get().setGuiOpen(value);
     if (!value) { restoreCursor(); flushRuntimeConfig(); }
-    logGuiInfo(value ? "Standalone GUI: F10 OPEN" : "Standalone GUI: F10 CLOSE");
+    logGuiInfo(value ? "Standalone GUI: L OPEN" : "Standalone GUI: L CLOSE");
 }
 
 LRESULT StandaloneGuiHost::windowProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) noexcept {
     if (message == kVisibilityMessage) { setVisible(wparam != 0); return 0; }
-    if ((message == WM_KEYDOWN || message == WM_SYSKEYDOWN) && wparam == VK_F10) {
+    if ((message == WM_KEYDOWN || message == WM_SYSKEYDOWN) && (wparam == 'L' || wparam == VK_F10)) {
         if (!(static_cast<ULONG_PTR>(lparam) & (1ULL << 30))) setVisible(!visible());
         return 1;
     }

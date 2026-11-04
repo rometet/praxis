@@ -15,16 +15,19 @@ std::vector<std::string> expectedEngineFull(Operation const& op,ResourcePackMana
     if(!manager.mGlobalStack.get()||!manager.mLevelStack.get())throw std::runtime_error("native stack unavailable");
     auto& repository=op.client->getResourcePackRepository();
     auto repo=Bedrock::NotNullNonOwnerPtr<IResourcePackRepository const>{Bedrock::NonOwnerPointer<IResourcePackRepository const>(repository)};
-    ResourcePackStack scratch(std::vector<PackInstanceId>{},repo,false);
+    // Native 26.60 owns the virtual stack destructor; a heap-owned
+    // candidate preserves the engine's destruction route without a direct
+    // reference to the removed concrete destructor export.
+    auto scratch=std::make_unique<ResourcePackStack>(std::vector<PackInstanceId>{},repo,false);
     auto context=op.settingsContext;context.allowPreGame=false;
     NativeSettingsPackScope scope(context);
-    manager.composeFullStack(scratch,*manager.mGlobalStack.get(),*manager.mLevelStack.get());
-    return keys(ids(&scratch));
+    manager.composeFullStack(*scratch,*manager.mGlobalStack.get(),*manager.mLevelStack.get());
+    return keys(ids(scratch.get()));
 }
 bool engineFullMatches(Operation const& op,ResourcePackManager& manager,std::vector<std::string> const& expected) {
-    if(!otherStacks(op,manager)||keys(ids(manager.mGlobalStack.get()))!=op.tx.targetGlobal)return false;
-    std::shared_lock lock(manager.mFullStackAccess.get());
-    return keys(ids(manager.mFullStack.get()))==expected;
+    if(!otherStacks(op,manager)||keys(ids(manager.mGlobalStack.get()))!=(op.tx.restoring?op.tx.oldGlobal:op.tx.targetGlobal))return false;
+
+    return activeFullKeys2660(manager)==expected;
 }
 void runWorldSelection(std::shared_ptr<Operation> const& op,MinecraftScreenModel& model,std::function<void()> setter) noexcept {
     TitleCallbackLease lease(lifetime,callbacks);WorldNativeContext seed;unsigned reason{};
@@ -89,7 +92,7 @@ void auditNativePackListeners(MinecraftGame& game,ResourcePackManager& manager) 
     try {
         auto& gameManager=game.getResourcePackManager();
         auto const gameModule=reinterpret_cast<std::uintptr_t>(GetModuleHandleW(nullptr));
-        constexpr std::uintptr_t GameImageBudget=311249032;
+        constexpr std::uintptr_t GameImageBudget=323853408;
         packDiagnostic("RESOURCEPACK_WORLD event=listener_owner same_game_manager=%u client_count=%zu game_count=%zu client_global=%u game_global=%u client_pending=%u game_pending=%u client_initializing=%u",
             unsigned(&gameManager==&manager),manager.mListeners->size(),gameManager.mListeners->size(),
             unsigned(bool(manager.mUseGlobalPackStack)),unsigned(bool(gameManager.mUseGlobalPackStack)),
@@ -160,7 +163,7 @@ void serviceWorldEngineReload(MinecraftGame& game) noexcept {
             }
             if(!engineOwnerCurrent(*op,game)||titlePackNow()>op->tx.deadline){sealWorldEngine(*op,1);return;}
             auto& manager=op->client->getResourcePackManager();
-            if(!otherStacks(*op,manager)||keys(ids(manager.mGlobalStack.get()))!=op->tx.targetGlobal){sealWorldEngine(*op,2);return;}
+            if(!otherStacks(*op,manager)||keys(ids(manager.mGlobalStack.get()))!=(op->tx.restoring?op->tx.oldGlobal:op->tx.targetGlobal)){sealWorldEngine(*op,2);return;}
             seed={op->tx.token,op->tx.attempt,0,op->tx.owner,false};model=op->completionModel;
             pending=manager.mPendingRestack;started=op->tx.started;
         }
@@ -171,10 +174,37 @@ void serviceWorldEngineReload(MinecraftGame& game) noexcept {
         }
         if(inventoryNow){auditNativePackListeners(game,manager);auditResourceLoadGate(game);}
         stage=3;
-        if(!model||nativeSettingsClient(*model,game,op->tx.owner.client)!=op->client)
+        if(!op->directEngine && (!model||nativeSettingsClient(*model,game,op->tx.owner.client)!=op->client))
             throw std::runtime_error("completion model owner changed");
         if(nativeTasks.load())return;
         stage=4;auto expected=expectedEngineFull(*op,manager);
+        if(op->directEngine && !op->request.reload) {
+            // 26.51 selection replaces the editable Global subsequence:
+            // any number of registered local packs may be added/removed or
+            // reordered while all protected source stacks remain unchanged.
+            // Confirm the native predicted Full contains the whole target,
+            // and original non-Global Full entries remain intact.
+            auto const& target=op->tx.restoring
+                ?op->tx.oldGlobal:op->tx.targetGlobal;
+            bool effective=!expected.empty()&&target.size()<=512;
+            for(auto const& entry:target)
+                if(std::find(expected.begin(),expected.end(),entry)==expected.end())
+                    effective=false;
+            for(auto const& entry:op->originalFull)
+                if(std::find(op->tx.oldGlobal.begin(),op->tx.oldGlobal.end(),entry)
+                        ==op->tx.oldGlobal.end()
+                   &&std::find(expected.begin(),expected.end(),entry)==expected.end())
+                    effective=false;
+            if(op->tx.restoring)effective=effective&&expected==op->originalFull;
+            if(!effective) {
+                packDiagnostic("RESOURCEPACK_WORLD event=direct_full_effect_denied token=%llu restoring=%u target=%zu predicted=%zu original_full=%zu",
+                    diagNumber(op->tx.token),unsigned(op->tx.restoring),
+                    target.size(),expected.size(),op->originalFull.size());
+                std::lock_guard lock(op->mutex);
+                sealWorldEngine(*op,14);
+                return;
+            }
+        }
         {
             std::lock_guard lock(op->mutex);
             if(op->expectedFullKnown&&op->expectedFull!=expected){sealWorldEngine(*op,5);return;}
@@ -205,14 +235,18 @@ void serviceWorldEngineReload(MinecraftGame& game) noexcept {
             manager._composeFullStack();
             auto votes=packInvalidVotes.load()-votesBefore;
             auto rejects=packInvalidRejects.load()-rejectsBefore;
-            std::lock_guard lock(op->mutex);++op->composeAttempts;
-            unsigned state=manager.mPendingRestack?1:2;
-            auto now=titlePackNow();
-            if(op->engineDiagnosticState!=state||now>=op->nextRestackDiagnostic){
-                op->engineDiagnosticState=state;op->nextRestackDiagnostic=now+5000;
-                packDiagnostic("RESOURCEPACK_WORLD event=engine_restack token=%llu pending=%u attempts=%u native_started=%u game_listener_votes=%llu game_listener_rejects=%llu",
-                    diagNumber(seed.token),unsigned(bool(manager.mPendingRestack)),op->composeAttempts,unsigned(op->tx.started),
-                    diagNumber(votes),diagNumber(rejects));}
+            {
+                std::lock_guard lock(op->mutex);++op->composeAttempts;
+                unsigned state=manager.mPendingRestack?1:2;
+                auto now=titlePackNow();
+                if(op->engineDiagnosticState!=state||now>=op->nextRestackDiagnostic){
+                    op->engineDiagnosticState=state;op->nextRestackDiagnostic=now+5000;
+                    packDiagnostic("RESOURCEPACK_WORLD event=engine_restack token=%llu pending=%u attempts=%u native_started=%u game_listener_votes=%llu game_listener_rejects=%llu",
+                        diagNumber(seed.token),unsigned(bool(manager.mPendingRestack)),op->composeAttempts,unsigned(op->tx.started),
+                        diagNumber(votes),diagNumber(rejects));}
+            }
+            // Keep the unverified native invalidation path disabled.
+            // Its previous forced listener acceptance caused a non-settling loop.
             return;
         }
         bool fullMatches=engineFullMatches(*op,manager,op->expectedFull);
@@ -222,7 +256,10 @@ void serviceWorldEngineReload(MinecraftGame& game) noexcept {
             // asynchronously. Do not seal merely because it has not run by
             // the time this call returns; deadline/owner/provenance still
             // fail closed. Never issue a second public reload request.
-            if(pending||!fullMatches||!game.isReadyToRender()||game.isShowingLoadingScreen()||!model->isResourceLoadingFinished())return;
+            bool readyBeforeDispatch=op->directEngine
+                ? !manager.mInitializing && game.isReadyToRender() && !game.isShowingLoadingScreen()
+                : native2660::loadingFinished(*model);
+            if(pending||!fullMatches||!readyBeforeDispatch||!game.isReadyToRender()||game.isShowingLoadingScreen())return;
             {std::lock_guard lock(op->mutex);
                 if(worldEngineDispatchAction(op->explicitEngineRequested,op->tx.started)==WorldEngineDispatchAction::AwaitNativeEntry)
                     return;
@@ -239,14 +276,30 @@ void serviceWorldEngineReload(MinecraftGame& game) noexcept {
                 sealWorldEngine(*op,13);
                 return;
             }
-            stage=7;WorldNativeScope native(seed);game.onActiveResourcePacksChanged(manager);
+            stage=7;
+            WorldNativeScope native(seed);
+            // 26.51 called the public MinecraftGame::onActiveResourcePacksChanged
+            // wrapper, which tail-calls the private _onActiveResourcePacksChanged
+            // body hooked above. Use the same public entry for every route so the
+            // engine's own listener bookkeeping runs exactly as in the working
+            // 26.51 implementation.
+            game.onActiveResourcePacksChanged(manager);
             {std::lock_guard lock(op->mutex);
                 packDiagnostic("RESOURCEPACK_WORLD event=engine_dispatch token=%llu attempt=%llu stage=returned started=%u",
                     diagNumber(seed.token),diagNumber(seed.attempt),unsigned(op->tx.started));
             }
             return;
         }
-        auto serial=nativeReloadSerial.load();bool loading=model->isResourceLoadingFinished();bool ui{};
+        auto serial=nativeReloadSerial.load();
+        // Direct world reload has no legacy MinecraftScreenModel getter.
+        // Native _finishReloadingResources AFTER the original engine method,
+        // together with settled stacks and a live renderer, is the producer.
+        bool loading=op->directEngine
+            ? op->tx.finished && op->engine.finishNormal() && !manager.mInitializing
+                && !manager.mPendingRestack && game.isReadyToRender()
+                && !game.isShowingLoadingScreen() && nativeTasks.load()==0
+            : native2660::loadingFinished(*model);
+        bool ui{};
         {
             std::lock_guard lock(op->mutex);
             if(op->engine.serial()!=serial){sealWorldEngine(*op,8);return;}
@@ -288,8 +341,8 @@ void serviceWorldEngineReload(MinecraftGame& game) noexcept {
                     gsl::span<std::string const>(exts.data(),exts.size())).first;
                 std::vector<std::string> full;
                 {
-                    std::shared_lock lock(manager.mFullStackAccess.get());
-                    full=keys(ids(manager.mFullStack.get()));
+
+                    full=activeFullKeys2660(manager);
                 }
                 fullCount=full.size();
                 if(!op->tx.targetGlobal.empty()) {

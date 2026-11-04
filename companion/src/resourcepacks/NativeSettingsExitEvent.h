@@ -13,7 +13,7 @@ namespace praxis::companion::packs {
 // Only the ButtonEvent variant is accepted here. Its value fields are copied
 // from the generated SDK ABI; the weak lifetime member is copy-constructed
 // and destroyed normally. The borrowed property pointer is replaced with an
-// owned UIPropertyBag populated through formal append(); this source alone
+// owned UIPropertyBag with deep-copied JSON fields; this source alone
 // does not establish the SDK method's runtime copy depth. The assertions below
 // validate the compiled SDK layout, not live instructions or symbol addresses.
 // Keep this limited adapter until the SDK provides an owning ButtonEvent clone;
@@ -47,7 +47,19 @@ struct NativeSettingsExitEvent {
         std::construct_at(reinterpret_cast<std::weak_ptr<void>*>(bytes+offsetof(ScreenEvent,lifetimeCheck)),sourceLifetime);
         try {
             if (hasProperties) {
-                properties.append(*source.data->button->properties);
+                // The destination bag starts empty, so a deep copy of its
+                // JSON payload preserves the consumed button-event values
+                // without the removed UIPropertyBag::append export.
+                // A cloned event never publishes property-change notifications.
+                auto const& borrowed=*source.data->button->properties;
+                properties.mJsonValue.get()=borrowed.mJsonValue.get();
+                properties.mChangeVersion=borrowed.mChangeVersion;
+                // The event clone is read-only; its source may have UI
+                // observers whose private copy constructor is not available
+                // in 26.60. Refuse to replay such an event rather than create
+                // an incompletely owned callback object.
+                if(!borrowed.mPropertyChangedNotificationInfoMap.get().empty())
+                    throw std::runtime_error("button event carries live property observers");
                 event().data->button->properties=&properties;
             }
         } catch (...) {

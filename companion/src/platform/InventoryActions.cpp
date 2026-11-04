@@ -86,6 +86,14 @@ void append(Region& region,ContainerManagerController& manager,std::string const
     if(size<0||size>54)throw std::runtime_error("Unsupported inventory region size");
     for(int i=0;i<size;++i){region.slots.push_back({collection,i});region.values.push_back(stackValue(manager.getItemStack(collection,i)));}
 }
+std::shared_ptr<ContainerController> observedContainer(
+    ContainerManagerController const& manager,std::string const& name) {
+    // 26.60 no longer exports getContainerController(). Use the public,
+    // typed collection of controllers solely during the active UI callback.
+    auto const& controllers=manager.mContainers.get();
+    auto it=controllers.find(name);
+    return it==controllers.end()?std::shared_ptr<ContainerController>{}:it->second;
+}
 std::optional<Context> context(ll::event::AfterUIRenderEvent& event) {
     auto& view=event.screenView();auto& client=event.uiRenderContext().mClient;
     if(!inventoryFocus(false)||!view.mHasFocus||view.mIsEntering||view.mIsExiting||view.mIsTerminating
@@ -94,7 +102,28 @@ std::optional<Context> context(ll::event::AfterUIRenderEvent& event) {
     if(!base||!base->_isContainerScreen())return {};
     auto screen=std::static_pointer_cast<ContainerScreenController>(base);
     std::shared_ptr<ContainerManagerController> manager=screen->mContainerManagerController;auto player=client.getLocalPlayer();
-    if(!manager||!player||manager->mContainersClosed||screen->_isCursorSelectedActive())return {};
+    if(!manager||!player||manager->mContainersClosed)return {};
+#if defined(PRAXIS_LL2660_PORT)
+    // 26.60 removed _isCursorSelectedActive(). Require an unequivocal
+    // idle cursor/drag state using typed, SDK-declared controller fields.
+    // An unknown or selected slot fails closed. Do not manufacture a
+    // transaction while the user is manipulating the cursor inventory.
+    auto const& selected=screen->mSelectedSlotData.get();
+    if(!selected.mCollectionName.get().empty() || selected.mCollectionIndex >= 0
+        || screen->mSplitDraggingToPlace || screen->mStartDeciding
+        || !screen->mDraggingCollectionName.get().empty())return {};
+    // A slot-selection flag alone cannot establish that the actual cursor
+    // has no item. Require an observable native cursor slot and an empty
+    // stack as a second independent fail-closed condition.
+    auto const& cursor=ContainerScreenController::mCursorSlotData();
+    auto const& cursorName=cursor.mCollectionName.get();
+    if(cursorName.empty() || cursor.mCollectionIndex<0
+        || !manager->hasContainerController(cursorName)
+        || manager->getContainerSize(cursorName)<=cursor.mCollectionIndex
+        || stackValue(manager->getItemStack(cursorName,cursor.mCollectionIndex)).count!=0)return {};
+#else
+    if(screen->_isCursorSelectedActive())return {};
+#endif
     auto const viewId=reinterpret_cast<std::uintptr_t>(&view);
     if(editors.contains(viewId)&&!editors.at(viewId).empty())return {};
     auto model=manager->mContainerManagerModel.lock();if(!model||&model->mPlayer!=player)return {};
@@ -121,7 +150,7 @@ std::optional<Context> context(ll::event::AfterUIRenderEvent& event) {
         auto& storage=result.snapshot.storage;
         if(storage.slots.empty())append(storage,*manager,name,count);
         else {
-            auto a=manager->getContainerController(storage.slots[0].collection),b=manager->getContainerController(name);
+            auto a=observedContainer(*manager,storage.slots[0].collection),b=observedContainer(*manager,name);
             if(!a||!b||!a->mContainerModel.lock()||a->mContainerModel.lock()!=b->mContainerModel.lock()
                 ||count!=static_cast<int>(storage.values.size()))return {};
             for(int i=0;i<count;++i)if(stackValue(manager->getItemStack(name,i))!=storage.values[i])return {};
@@ -335,6 +364,7 @@ bool handleInventoryMouse(int button,int data,bool alreadyCancelled) noexcept {
     return false;
 }
 bool installInventoryActions() {
+
     for(auto& h:hooks)if(!h.installed){if(h.add()!=0){removeInventoryActions();return false;}h.installed=true;}
     try {if(!uiListener)uiListener=ll::event::EventBus::getInstance().emplaceListener<ll::event::AfterUIRenderEvent>(
         [](ll::event::AfterUIRenderEvent& event){try{onFrame(event);}catch(...){std::lock_guard lock(mutex);stop("UI exception");}});

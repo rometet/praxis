@@ -12,7 +12,10 @@ struct WorldPeerStepPolicy {
     bool waitForSettingsSelection{};
 };
 inline constexpr WorldPeerStepPolicy worldPeerStepPolicy(bool apiReload,bool nativeSettings) noexcept {
-    return {apiReload,nativeSettings};
+    // Explicit API-based in-world Apply/Reload still needs one chunk mesh
+    // invalidation after native texture completion. Only the original
+    // Settings-owned path delegates that geometry duty to Minecraft.
+    return {apiReload&&nativeSettings,nativeSettings};
 }
 // Production coordinator and the joined fixtures share these exact C ABI
 // calls/receipts/transitions. Query is polling, never a native drain operation.

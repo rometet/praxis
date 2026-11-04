@@ -9,13 +9,14 @@ using Json=nlohmann::ordered_json;
 int main(){
  unsigned checks{};auto check=[&](bool v,char const* m){++checks;if(!v)throw std::runtime_error(m);};
  try {
-   check(featureCount==28 && static_cast<unsigned>(Feature::WeatherChanger)==8
+   check(featureCount==31 && static_cast<unsigned>(Feature::WeatherChanger)==8
    && static_cast<unsigned>(Feature::Hitbox)==9 && static_cast<unsigned>(Feature::ToolProtection)==10
    && static_cast<unsigned>(Feature::WeaponSwitch)==11 && static_cast<unsigned>(Feature::HandRestock)==12
    && static_cast<unsigned>(Feature::InventorySort)==13 && static_cast<unsigned>(Feature::InventoryTransfer)==14,"fixed slot contract");
   for(unsigned card=0;card<8;++card)check(favoriteSlotForCard(card,Feature::Zoom)==card,"legacy favorite card bits preserved");
   check(favoriteSlotForCard(8,Feature::ToolProtection)==10,"new favorite uses feature slot");
   RuntimeConfig expected;
+  check(!expected.fastBlockPlacement,"FBP opt-in defaults OFF in legacy config");
   expected.toolProtection=true;expected.toolProtectionOptions={42,17,true,false};
   expected.weaponSwitch=true;expected.weaponSwitchOptions={2,true,false,false,false};
   expected.handRestock=true;expected.handRestockOptions={13,800,true,false};

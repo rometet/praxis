@@ -52,7 +52,7 @@ public:
             id,unsigned(pass),diagNumber(actual),diagNumber(expected));return result(id,pass);
     }
     bool image(unsigned id,bool verified) noexcept {
-        record("RESOURCEPACK_WORLD event=completion_preflight attempt=1 stage=%u pass=%u sdk=26.51.5 approved_sha256=f82dc967d3800b7b892c38a97b672e5f3257d9c0c0cffeccdc5f83de02363b2a actual=%s",
+        record("RESOURCEPACK_WORLD event=completion_preflight attempt=1 stage=%u pass=%u sdk=26.60.5 approved_sha256=d52fc92c6651cd553f1cb83e57ac68e4b062dd204c25eca4cbe3c2baae2c1567 actual=%s",
             id,unsigned(verified),verified?"match":"unverified");return result(id,verified);
     }
     bool protection(unsigned id,unsigned actual,unsigned read,unsigned readWrite,unsigned writeCopy) noexcept {

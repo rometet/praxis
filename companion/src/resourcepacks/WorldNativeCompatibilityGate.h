@@ -1,6 +1,7 @@
 #pragma once
-// A *single* local resource pack appended to an otherwise unchanged Global
-// stack may be considered for a native compatibility experiment. This does
+// A validated 26.51-style editable Global selection (including multiple
+// registered ordinary local packs) may enter the native 26.60 compatibility
+// path. Changes to non-editable world/server origin stacks are not allowed. This does
 // NOT confer rights to change Level, Treatment, Base, behavior, script, DRM,
 // entitlement, device state, pending bits, or multi-player resource stacks.
 #include <cstddef>
@@ -19,6 +20,9 @@ struct WorldNativeCompatibilityAdmission {
     // at the front or in the middle. All original stack identities and
     // their relative order MUST be preserved for this exact clone only.
     bool singleVanillaEditorChange{};
+    // Complete 26.51-style editable selection (multi-select, priority
+    // reorder, removal and addition) verified against exact native owners.
+    bool verifiedEditableSelection{};
 };
 // Stable ABI-free per-predicate audit. Bit N marks a missing precondition,
  // so one runtime attempt tells us *why* the original engine veto remained
@@ -28,7 +32,7 @@ constexpr std::uint32_t worldNativeCompatibilityFailures(WorldNativeCompatibilit
         |(std::uint32_t(!a.sameGame)<<2)|(std::uint32_t(!a.sameWorld)<<3)
         |(std::uint32_t(!a.sameManager)<<4)|(std::uint32_t(!a.identity)<<5)
         |(std::uint32_t(!a.initial)<<6)|(std::uint32_t(!a.pending)<<7)
-        |(std::uint32_t(!(a.singleLocalAppend||a.singleLocalRemove||a.singleVanillaEditorChange))<<8)|(std::uint32_t(!a.prepared)<<9)
+        |(std::uint32_t(!(a.singleLocalAppend||a.singleLocalRemove||a.singleVanillaEditorChange||a.verifiedEditableSelection))<<8)|(std::uint32_t(!a.prepared)<<9)
         |(std::uint32_t(!a.originalInGame)<<10)|(std::uint32_t(!a.gameReady)<<11)
         |(std::uint32_t(!a.loadReady)<<12)|(std::uint32_t(!a.notLeaving)<<13)
         |(std::uint32_t(!a.notMultiplayer)<<14)|(std::uint32_t(!(a.levelEmpty||a.offlineCloneLevelPreserved))<<15)

@@ -142,7 +142,7 @@ void renderHitboxes(BaseActorRenderContext& context) {
         auto dx=p.x-position.x,dy=p.y-position.y,dz=p.z-position.z;
         auto distance=dx*dx+dy*dy+dz*dz;
         if(!std::isfinite(distance)||distance>o.range*o.range)continue;
-        float alpha=context.getFrameAlpha(*actor);
+        float alpha=context.mFrameAlpha; // 26.60 exposes the frame alpha as typed context storage
         if(!std::isfinite(alpha))continue;
         auto const interpolated=actor->getInterpolatedPosition(std::clamp(alpha,0.f,1.f));
         auto const& bounds=actor->getAABB();

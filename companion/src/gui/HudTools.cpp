@@ -170,7 +170,9 @@ void drawUnifiedHotkeys(RuntimeConfig& c,bool& changed,std::uint32_t& bindingEdi
     unifiedHotkeyHeaderProbe[2]=(conflictsMin.x+conflictsMax.x)*.5f;unifiedHotkeyHeaderProbe[3]=(conflictsMin.y+conflictsMax.y)*.5f;
 #endif
     std::vector<Binding> rows;
-    for(unsigned i=0;i<featureCount;++i)if(ownedFeatureSlotMask&featureRegistryBit(i))rows.push_back({featureDisplayName(featureNames[i]),{unsigned(c.keybinds[i]),c.keybindModifiers[i],1},0,int(i)});
+    for(unsigned i=0;i<featureCount;++i)if(i!=static_cast<unsigned>(Feature::AccurateBlockPlacement)
+        && (ownedFeatureSlotMask&featureRegistryBit(i)))
+        rows.push_back({featureDisplayName(featureNames[i]),{unsigned(c.keybinds[i]),c.keybindModifiers[i],1},0,int(i)});
     rows.push_back({"FlexiblePlacement: 回転 HOLD",{unsigned(c.flexiblePlacementOptions.rotationKey),c.flexiblePlacementOptions.rotationModifiers,1},6,0});
     rows.push_back({"FlexiblePlacement: オフセット HOLD",{unsigned(c.flexiblePlacementOptions.offsetKey),c.flexiblePlacementOptions.offsetModifiers,1},6,1});
     rows.push_back({"FlexiblePlacement: 隣接 HOLD",{unsigned(c.flexiblePlacementOptions.adjacentKey),c.flexiblePlacementOptions.adjacentModifiers,1},6,2});

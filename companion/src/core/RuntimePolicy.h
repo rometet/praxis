@@ -22,7 +22,7 @@ struct LoaderVersionView {
     constexpr bool operator==(LoaderVersionView const&) const noexcept = default;
 };
 
-inline constexpr LoaderVersionView kSupportedLoaderVersion{26, 51, 5, false, false};
+inline constexpr LoaderVersionView kSupportedLoaderVersion{26, 60, 0, false, true};
 
 inline constexpr bool supportedLoaderVersion(LoaderVersionView const& version) noexcept {
     return version == kSupportedLoaderVersion;
@@ -93,6 +93,10 @@ struct RuntimeConfig {
     AntiEffectOptions antiEffectOptions{};
     bool flexibleBlockPlacement{};
     FlexiblePlacementOptions flexiblePlacementOptions{};
+ bool accurateBlockPlacement{};
+ AccuratePlacementOptions accuratePlacementOptions{};
+ bool fastRightClick{}, fastLeftClick{}, fastBlockPlacement{};
+ FastClickOptions fastRightClickOptions{8,1,false,false,false,true},fastLeftClickOptions{};
 };
 
 inline bool validRuntimeConfig(RuntimeConfig const& config) noexcept {
@@ -153,7 +157,13 @@ inline bool validRuntimeConfig(RuntimeConfig const& config) noexcept {
         && validFlexibleKey(config.flexiblePlacementOptions.adjacentKey)
         && validModifiers(config.flexiblePlacementOptions.rotationModifiers)
         && validModifiers(config.flexiblePlacementOptions.offsetModifiers)
-        && validModifiers(config.flexiblePlacementOptions.adjacentModifiers);
+        && validModifiers(config.flexiblePlacementOptions.adjacentModifiers)
+        && validFlexibleKey(config.accuratePlacementOptions.intoKey)
+        && validFlexibleKey(config.accuratePlacementOptions.reverseKey)
+        && validModifiers(config.accuratePlacementOptions.intoModifiers)
+        && validModifiers(config.accuratePlacementOptions.reverseModifiers)
+        && validFastClickOptions(config.fastRightClickOptions,64)
+        && validFastClickOptions(config.fastLeftClickOptions,8);
 }
 
 inline Settings runtimeSettings(RuntimeConfig const& config, RenderMask available,
@@ -202,6 +212,19 @@ inline Settings runtimeSettings(RuntimeConfig const& config, RenderMask availabl
     result.enabled[static_cast<unsigned>(Feature::FlexibleBlockPlacement)] = config.flexibleBlockPlacement
         && (availableFeatureMask & featureRegistryBit(static_cast<unsigned>(Feature::FlexibleBlockPlacement))) != 0;
     result.flexiblePlacement = config.flexiblePlacementOptions;
+    // The 26.60 public preview only exposes FlexibleBlockPlacement.
+    // Preserve saved user settings, but never run the unported Accurate placement backend.
+    result.enabled[static_cast<unsigned>(Feature::AccurateBlockPlacement)] = false;
+    result.accuratePlacement = config.accuratePlacementOptions;
+    result.enabled[unsigned(Feature::FastRightClick)] = config.fastRightClick
+        && (availableFeatureMask & featureRegistryBit(unsigned(Feature::FastRightClick))) != 0;
+    result.enabled[unsigned(Feature::FastLeftClick)] = config.fastLeftClick
+        && (availableFeatureMask & featureRegistryBit(unsigned(Feature::FastLeftClick))) != 0;
+    // Keep unsupported fast placement paths inactive even when older profiles requested them.
+    result.fastBlockPlacement=false;
+    result.fastRightClick=config.fastRightClickOptions;
+    result.fastRightClick.allowBlockPlacement=false;
+    result.fastLeftClick=config.fastLeftClickOptions;
     result.hitboxOptions=config.hitboxOptions;
     result.enabled[static_cast<unsigned>(Feature::Hitbox)]=config.hitboxOptions.enabled;
     result.zoomOptions = config.zoomOptions;

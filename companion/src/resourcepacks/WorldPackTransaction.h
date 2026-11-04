@@ -15,6 +15,13 @@ struct WorldPackOwner {
 };
 enum class WorldSwitchPhase {Idle,Preparing,Pausing,AwaitApply,Reloading,Reacquiring,Complete,Restored,Cancelled,Recovery};
 enum class WorldSwitchAction {None,NativeSettled};
+// A completed native texture reload still needs one refresh of existing
+// chunk meshes before owners resume on the explicit API path.
+inline constexpr bool shouldRequestWorldChunkGeometry(WorldSwitchPhase phase,
+    bool geometryRequested,bool apiReload,bool engineApplicationReady) noexcept {
+    return phase==WorldSwitchPhase::Reacquiring&&!geometryRequested
+        &&(!apiReload||engineApplicationReady);
+}
 class WorldPackTransaction {
 public:
     WorldSwitchPhase phase{WorldSwitchPhase::Idle};
@@ -68,7 +75,7 @@ public:
         if(phase!=WorldSwitchPhase::Reloading||!frameReceipt||!started||!startReturned||!finished)return false;
         if(now>deadline||!current.usable()||owner.game!=current.game||owner.manager!=current.manager
             ||owner.client!=current.client||owner.world!=current.world||owner.thread!=current.thread
-            ||!otherUnchanged||global!=targetGlobal){seal();return false;}
+            ||!otherUnchanged||global!=(restoring?oldGlobal:targetGlobal)){seal();return false;}
         try{lastStable=global;}catch(...){seal();return false;}
         owner.renderer=current.renderer;
         participant.renderer=current.renderer;

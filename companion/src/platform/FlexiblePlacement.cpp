@@ -1,6 +1,8 @@
 #include "platform/FlexiblePlacement.h"
 #include "platform/Native.h"
 #include "core/FlexiblePlacementPolicy.h"
+#include "core/FlexibleOverlayCameraGeometry.h"
+#include "core/AccuratePlacementPolicy.h"
 #include "core/FlexibleStairPlacementPolicy.h"
 #include "core/FlexiblePlacementClickFence.h"
 #include "core/HotkeyPolicy.h"
@@ -47,6 +49,11 @@
 #include "mc/world/level/block/BlockType.h"
 #include "mc/world/level/block/BlockProperty.h"
 #include "mc/world/phys/HitResult.h"
+#include "mc/deps/nbt/CompoundTag.h"
+#include "mc/deps/nbt/ByteTag.h"
+#include "mc/deps/nbt/IntTag.h"
+#include "mc/deps/nbt/StringTag.h"
+#include "mc/deps/nbt/Tag.h"
 
 #include <Windows.h>
 #include <algorithm>
@@ -100,6 +107,13 @@ unsigned currentModifiers() noexcept {
 
 bool chordDown(int key, unsigned modifiers) noexcept {
     return keyDown(key) && modifiersMatch(modifiers, currentModifiers());
+}
+
+unsigned heldAccurateActions(Settings const& s) noexcept {
+    if (!s.on(Feature::AccurateBlockPlacement)) return 0;
+    auto const& o=s.accuratePlacement;
+    return (chordDown(o.intoKey,o.intoModifiers)?1u:0u)
+        |(chordDown(o.reverseKey,o.reverseModifiers)?2u:0u);
 }
 
 unsigned heldModes(Settings const& settings) noexcept {
@@ -271,7 +285,7 @@ InteractionResult safeFlexibleFailure() noexcept { return InteractionResult{fals
 
 bool queueLholoPlacement(
     ItemStack const& item, FlexiblePlacementPlan const& plan, FlexibleUV uv,
-    Block const& support, bool airTarget, LocalPlayer const& player, unsigned modes) {
+    Block const& support, bool airTarget, LocalPlayer const& player, unsigned modes, bool accurateDispatch=false) {
     LholoModuleLease lease;
     auto const queue = lholoQueueFn(lease.module);
     if (!queue) return false;
@@ -307,7 +321,7 @@ bool queueLholoPlacement(
     // Tweakeroo changes the network yaw for the flexible action but preserves
     // the player's actual pitch. LHolo mirrors that exact pair into one
     // genuine PlayerAuthInput packet; plan.desiredPitch is not a fake camera.
-    request.pitch = player.getRotation().x;
+    request.pitch = accurateDispatch ? plan.desiredPitch : player.getRotation().x;
     request.yaw = hasFlexibleMode(modes, FlexibleRotation) ? plan.desiredYaw : player.getRotation().y;
     request.maxPickRange = player.getPickRange();
     auto const queued = queue(request);
@@ -339,6 +353,79 @@ void cancelLholoExternal() noexcept {
     flexibleExternalEpoch.fetch_add(1, std::memory_order_acq_rel);
 }
 
+// Verify Bedrock's *actual* block-state prediction for a modified look
+// vector. Sending a plausible yaw/pitch is not enough for vertical pistons:
+// vanilla getPlacementBlock also considers position and the clicked face.
+std::optional<FlexibleFace> nativePlacementFacing(Block const& block) {
+    for (auto const& [rootKey, rootValue] : block.mSerializationId.get()) {
+        if (rootKey != "states" || !rootValue.hold<::CompoundTag>()) continue;
+        for (auto const& [key, tag] : rootValue.get<::CompoundTag>()) {
+            if (key != "facing_direction" && key != "minecraft:facing_direction") continue;
+            int dir=-1;
+            if (tag.getId() == ::Tag::Type::Byte) dir=static_cast<int>(tag.get<::ByteTag>().data);
+            else if (tag.getId() == ::Tag::Type::Int) dir=tag.get<::IntTag>().data;
+            else if (tag.getId() == ::Tag::Type::String) {
+                auto const& text=static_cast<std::string const&>(tag.get<::StringTag>());
+                if (text=="down") dir=0;
+                else if (text=="up") dir=1;
+                else if (text=="north") dir=2;
+                else if (text=="south") dir=3;
+                else if (text=="west") dir=4;
+                else if (text=="east") dir=5;
+            }
+            if (dir>=0 && dir<6) return static_cast<FlexibleFace>(dir);
+        }
+    }
+    return std::nullopt;
+}
+struct ScopedAccuratePredictionRotation {
+    Vec2& rotation;
+    Vec2 original;
+    ScopedAccuratePredictionRotation(Vec2& slot,float pitch,float yaw)
+        :rotation(slot),original(slot) { rotation.x=pitch;rotation.y=yaw; }
+    ~ScopedAccuratePredictionRotation() noexcept {rotation=original;}
+    ScopedAccuratePredictionRotation(ScopedAccuratePredictionRotation const&)=delete;
+};
+std::optional<AccurateRotation> validateAccurateNativeFacing(
+    LocalPlayer& player, ItemStack const& item, FlexiblePlacementPlan const& plan,
+    FlexibleUV uv, AccurateRotation desired,
+    std::optional<FlexibleFace>& firstPredicted) {
+    firstPredicted.reset();
+    if (!desired.valid || !item.mBlock) return std::nullopt;
+    Vec3 const click= [&] {
+        auto const v=flexibleRelativeHit(plan.originalFace,uv);
+        return Vec3{v.x,v.y,v.z};
+    }();
+    auto& playerRotation=const_cast<Vec2&>(player.getRotation());
+    auto const originalYaw=playerRotation.y;
+    // 18 bounded, unmodified native predictor calls. Do not guess rotation
+    // from a Java-only Carpet hit encoding, and never change the real camera.
+    constexpr std::array<float,4> cardinal{0.F,90.F,180.F,-90.F};
+    std::array<std::pair<float,float>,18> choices{};
+    std::size_t count{};
+    choices[count++]={desired.pitch,desired.yaw};
+    for (auto pitch:{-80.F,80.F,-89.5F,89.5F,0.F})
+        choices[count++]={pitch,originalYaw};
+    for (auto yaw:cardinal) choices[count++]={0.F,yaw};
+    for (auto yaw:cardinal) choices[count++]={-80.F,yaw};
+    for (auto yaw:cardinal) choices[count++]={80.F,yaw};
+    for(std::size_t i=0;i<count;++i) {
+        auto const [pitch,yaw]=choices[i];
+        ScopedAccuratePredictionRotation scoped(playerRotation,pitch,yaw);
+        auto const& predicted=item.mBlock->getBlockType().getPlacementBlock(
+            player,blockPosOf(plan.destination),
+            static_cast<uchar>(plan.originalFace),click,item.getIdAux());
+        auto const facing=nativePlacementFacing(predicted);
+        if (i==0) firstPredicted=facing;
+        if (facing && *facing==desired.targetFace) {
+            desired.pitch=pitch;
+            desired.yaw=yaw;
+            return desired;
+        }
+    }
+    return std::nullopt;
+}
+
 enum class FlexibleTransformDecision : std::uint8_t { NotApplicable, Handled, Blocked };
 
 FlexibleTransformDecision tryFlexibleTransform(
@@ -349,7 +436,8 @@ FlexibleTransformDecision tryFlexibleTransform(
     if (!local || &gameMode.mPlayer != static_cast<Player*>(local)) return {};
     auto& player = *local;
     auto current = settings();
-    if (!current || !current->on(Feature::FlexibleBlockPlacement) || !useAllowed()) return {};
+    if (!current || !(current->on(Feature::FlexibleBlockPlacement)
+        || current->on(Feature::AccurateBlockPlacement)) || !useAllowed()) return {};
     if (hand != HandSlot::Mainhand) return {};
     // Check before the ordinary interactive-block passthrough. A held use
     // callback can now hit the freshly placed trapdoor instead of its support.
@@ -374,8 +462,21 @@ FlexibleTransformDecision tryFlexibleTransform(
     auto const& selected = player.getInventory().getItem(selectedSlot);
     if (!blockItem(item) || !blockItem(selected) || item.getId() != selected.getId()
         || item.getIdAux() != selected.getIdAux() || item.mCount != selected.mCount
-        || !item.matchesNetIdVariant(selected) || interactiveTarget) return {};
-    auto const modes = heldModes(*current);
+        || !(item.mNetIdVariant.get() == selected.mNetIdVariant.get()) || interactiveTarget) return {};
+    auto const flexibleModes = current->on(Feature::FlexibleBlockPlacement)
+        ? heldModes(*current) : 0u;
+    // A specific flexible R/G/H action wins when both sets of keys are held.
+    // Accurate alone is encoded as RotationMode for the existing LHolo v2
+    // bridge, but it does not use Flexible's 5-way visual selector.
+    auto const rawAccurateActions=heldAccurateActions(*current);
+    // Tweakeroo permits Reverse together with Flexible Rotation. Do not
+    // combine Into with Flexible's five-way orientation or G/H offsets.
+    auto const actions=flexibleModes==FlexibleRotation
+        ? (rawAccurateActions&2u)
+        : flexibleModes ? 0u : rawAccurateActions;
+    bool const accurate = flexibleModes==0 && actions!=0u;
+    bool const reverseFlexible=flexibleModes==FlexibleRotation && actions!=0u;
+    auto const modes = accurate ? unsigned(FlexibleRotation) : flexibleModes;
     if (!modes) return {};
     transforming = true;
     auto const lholoState = lholoPlacementState();
@@ -415,14 +516,54 @@ FlexibleTransformDecision tryFlexibleTransform(
         admissionNotice(FlexibleAdmissionReason::InvalidPlan);
         return FlexibleTransformDecision::Blocked;
     }
-    auto plan = planFlexiblePlacementForItem(cellOf(pos), typedFace, *selectionUv, modes,
-        horizontalFacingFromYaw(player.getRotation().y), stairBlockItem(item));
+    auto plan = planFlexiblePlacementForItem(cellOf(pos), typedFace, *selectionUv,
+        accurate ? 0u : modes, horizontalFacingFromYaw(player.getRotation().y),
+        !accurate && stairBlockItem(item));
+    if (accurate) {
+        auto const rotation=accurateRotation(accurateBlockKind(item.getTypeName()),typedFace,
+            player.getRotation().y,player.getRotation().x,
+            (actions&1u)!=0,(actions&2u)!=0);
+        if (!rotation.valid) {
+            // Unsupported directional material, or a horizontal-facing device
+            // with vertical Into: allow ordinary vanilla placement, never
+            // synthesize an unknown block state or consume its click.
+            transforming=false;
+            return FlexibleTransformDecision::NotApplicable;
+        }
+        auto verified=rotation;
+        if ((actions&1u) && plan.valid
+            && accurateBlockKind(item.getTypeName())!=AccurateBlockKind::HorizontalFacing) {
+            std::optional<FlexibleFace> firstPredicted;
+            auto const native=validateAccurateNativeFacing(
+                player,item,plan,*rawUv,rotation,firstPredicted);
+            if (!native) {
+                logGuiInfo(std::format(
+                    "ACCURATE_NATIVE blocked=vanilla-prediction-mismatch block={} clickedFace={} requestedFacing={} firstFacing={} initialYaw={:.2f} initialPitch={:.2f}",
+                    item.getTypeName(),static_cast<unsigned>(typedFace),
+                    static_cast<unsigned>(rotation.targetFace),
+                    firstPredicted ? static_cast<int>(*firstPredicted) : -1,
+                    rotation.yaw,rotation.pitch).c_str());
+                // The server would choose another orientation. Do not send a
+                // known-wrong transaction or silently fall through to vanilla.
+                return FlexibleTransformDecision::Blocked;
+            }
+            verified=*native;
+            logGuiInfo(std::format(
+                "ACCURATE_NATIVE verified clickedFace={} blockFacing={} syncedYaw={:.2f} syncedPitch={:.2f}",
+                static_cast<unsigned>(typedFace),static_cast<unsigned>(rotation.targetFace),
+                verified.yaw,verified.pitch).c_str());
+        }
+        plan.desiredYaw=verified.yaw;
+        plan.desiredPitch=verified.pitch;
+    } else if(reverseFlexible && plan.valid) {
+        plan.desiredYaw=std::remainder(plan.desiredYaw+180.0f,360.0f);
+    }
     if (!plan.valid) {
         admissionNotice(FlexibleAdmissionReason::InvalidPlan);
         return FlexibleTransformDecision::Blocked;
     }
     auto& region = player.getDimensionBlockSource();
-    plan = resolveFlexiblePositionSupport(plan, [&](FlexibleCell cell) {
+    if (!accurate) plan = resolveFlexiblePositionSupport(plan, [&](FlexibleCell cell) {
         return !region.getBlock(blockPosOf(cell)).isAir();
     });
     auto const& supportBlock = region.getBlock(blockPosOf(plan.useSupport));
@@ -439,7 +580,8 @@ FlexibleTransformDecision tryFlexibleTransform(
         admissionNotice(reason);
         return FlexibleTransformDecision::Blocked;
     }
-    if (!queueLholoPlacement(item, plan, *rawUv, supportBlock, supportBlock.isAir(), player, modes)) {
+    if (!queueLholoPlacement(item, plan, *rawUv, supportBlock, supportBlock.isAir(), player,
+            modes, accurate)) {
         admissionNotice(FlexibleAdmissionReason::NativeUnsupported);
         return FlexibleTransformDecision::Blocked;
     }
@@ -465,8 +607,11 @@ Vec3 latestHitFor(BlockPos const& pos, uchar face, bool& valid) {
 bool localFlexibleBuildCandidate(GameMode const& gameMode, HandSlot hand) {
     if (hand != HandSlot::Mainhand) return false;
     auto const current = settings();
-    if (!current || !current->on(Feature::FlexibleBlockPlacement) || !useAllowed()
-        || heldModes(*current) == 0) return false;
+    if (!current || !useAllowed()) return false;
+    auto const flexible=current->on(Feature::FlexibleBlockPlacement)
+        && heldModes(*current)!=0;
+    auto const accurate=heldAccurateActions(*current)!=0;
+    if (!flexible && !accurate) return false;
     auto const client = ll::service::getClientInstance();
     auto const* local = client ? client->getLocalPlayer() : nullptr;
     return local && &gameMode.mPlayer == static_cast<Player const*>(local)
@@ -565,27 +710,21 @@ void setColor(Tessellator& tessellator, std::uint32_t color) {
         static_cast<float>((color >> 24) & 0xff) / 255.0f);
 }
 
-Vec3 facePoint(FlexibleCell cell, FlexibleFace face, float u, float v) {
-    constexpr float epsilon = 0.004f;
-    switch (face) {
-    case FlexibleFace::Down: return {cell.x + u, cell.y - epsilon, cell.z + v};
-    case FlexibleFace::Up: return {cell.x + u, cell.y + 1.0f + epsilon, cell.z + v};
-    case FlexibleFace::North: return {cell.x + u, cell.y + v, cell.z - epsilon};
-    case FlexibleFace::South: return {cell.x + u, cell.y + v, cell.z + 1.0f + epsilon};
-    case FlexibleFace::West: return {cell.x - epsilon, cell.y + v, cell.z + u};
-    case FlexibleFace::East: return {cell.x + 1.0f + epsilon, cell.y + v, cell.z + u};
-    }
-    return {};
+// Emit model-space points relative to a shared integer anchor. This preserves
+// 0.004 block surface bias and the quarter-block grid at +/-30M world X/Z.
+Vec3 facePoint(FlexibleCell cell, FlexibleCell anchor, FlexibleFace face, float u, float v) {
+    auto const p=flexibleOverlayFacePoint(cell,anchor,face,u,v);
+    return {p.x,p.y,p.z};
 }
 
 using Line = std::pair<Vec3, Vec3>;
-void addFaceGrid(std::vector<Line>& lines, FlexibleCell cell, FlexibleFace face,
-    FlexibleHorizontal playerFacing) {
+void addFaceGrid(std::vector<Line>& lines, FlexibleCell cell, FlexibleCell anchor,
+    FlexibleFace face, FlexibleHorizontal playerFacing) {
     auto add = [&](float u0, float v0, float u1, float v1) {
         auto const first = flexibleRawUVFromOriented({u0, v0}, face, playerFacing);
         auto const second = flexibleRawUVFromOriented({u1, v1}, face, playerFacing);
-        lines.emplace_back(facePoint(cell, face, first.u, first.v),
-            facePoint(cell, face, second.u, second.v));
+        lines.emplace_back(facePoint(cell, anchor, face, first.u, first.v),
+            facePoint(cell, anchor, face, second.u, second.v));
     };
     add(0, 0, 1, 0); add(1, 0, 1, 1); add(1, 1, 0, 1); add(0, 1, 0, 0);
     for (float u : {0.25f, 0.75f}) add(u, 0.25f, u, 0.75f);
@@ -596,28 +735,29 @@ void addFaceGrid(std::vector<Line>& lines, FlexibleCell cell, FlexibleFace face,
     add(0.75f, 0.75f, 1.0f, 1.0f);
 }
 
-void addSelectedRegion(std::vector<Line>& lines, FlexibleCell cell, FlexibleFace face,
-    FlexibleRegion region, FlexibleHorizontal playerFacing) {
+void addSelectedRegion(std::vector<Line>& lines, FlexibleCell cell, FlexibleCell anchor,
+    FlexibleFace face, FlexibleRegion region, FlexibleHorizontal playerFacing) {
     auto const polygon = flexibleRegionPolygon(region);
     for (std::size_t index = 0; index < polygon.size(); ++index) {
         auto const next = (index + 1) % polygon.size();
         auto const first = flexibleRawUVFromOriented(polygon[index], face, playerFacing);
         auto const second = flexibleRawUVFromOriented(polygon[next], face, playerFacing);
-        lines.emplace_back(facePoint(cell, face, first.u, first.v),
-            facePoint(cell, face, second.u, second.v));
+        lines.emplace_back(facePoint(cell, anchor, face, first.u, first.v),
+            facePoint(cell, anchor, face, second.u, second.v));
     }
 }
 
-void addCube(std::vector<Line>& lines, FlexibleCell cell) {
-    Vec3 p[8]{{float(cell.x),float(cell.y),float(cell.z)}, {float(cell.x+1),float(cell.y),float(cell.z)},
-        {float(cell.x+1),float(cell.y+1),float(cell.z)}, {float(cell.x),float(cell.y+1),float(cell.z)},
-        {float(cell.x),float(cell.y),float(cell.z+1)}, {float(cell.x+1),float(cell.y),float(cell.z+1)},
-        {float(cell.x+1),float(cell.y+1),float(cell.z+1)}, {float(cell.x),float(cell.y+1),float(cell.z+1)}};
+void addCube(std::vector<Line>& lines, FlexibleCell cell, FlexibleCell anchor) {
+    auto const p=flexibleOverlayCubeCorners(cell,anchor);
     constexpr int edges[][2]{{0,1},{1,2},{2,3},{3,0},{4,5},{5,6},{6,7},{7,4},{0,4},{1,5},{2,6},{3,7}};
-    for (auto const& edge : edges) lines.emplace_back(p[edge[0]], p[edge[1]]);
+    for (auto const& edge : edges) {
+        auto const& a=p[edge[0]];auto const& b=p[edge[1]];
+        lines.emplace_back(Vec3{a.x,a.y,a.z},Vec3{b.x,b.y,b.z});
+    }
 }
 
-void renderLines(BaseActorRenderContext& context, std::vector<Line> const& lines, std::uint32_t color,
+void renderLines(BaseActorRenderContext& context, std::vector<Line> const& lines,
+    FlexibleCell anchor, std::uint32_t color,
     char const* meshName, std::unique_ptr<mce::MaterialPtr>& material) {
     if (lines.empty()) return;
     auto* renderer = context.mClientInstance.getLevelRenderer();
@@ -634,9 +774,12 @@ void renderLines(BaseActorRenderContext& context, std::vector<Line> const& lines
     for (auto const& line : lines) { tessellator.vertex(line.first.x,line.first.y,line.first.z); tessellator.vertex(line.second.x,line.second.y,line.second.z); }
     auto mesh = tessellator.end(Tessellator::UploadMode::Buffered, meshName, SupplementaryFieldAutoGenerationMode{0});
     if (!mesh.isValid()) return;
-    auto camera = impl->mCameraPosition.get();
+    auto const camera = impl->mCameraPosition.get();
+    auto const relative=flexibleOverlayCameraTranslation(
+        anchor,camera.x,camera.y,camera.z);
+    if(!validFlexibleOverlayCameraTranslation(relative))return;
     auto matrix = context.mScreenContext.camera.worldMatrixStack.get().push(false);
-    matrix.mat->translate(-camera.x, -camera.y, -camera.z);
+    matrix.mat->translate(relative.x,relative.y,relative.z);
     mesh.renderMesh(context.mScreenContext, *material, texture.value, 0,
         mesh.mVertexCount.get().value_or(0u), emptyCapture(), nullptr);
 }
@@ -666,9 +809,13 @@ lholo_abi::FlexiblePlacementOwnerStatusV2 praxis_flexible_placement_v2_get_owner
         bool const focused = gameHasFocus();
         bool const guiClear = !guiInputCaptured();
         bool const featureEnabled = current
-            && current->on(Feature::FlexibleBlockPlacement);
+            && (current->on(Feature::FlexibleBlockPlacement)
+                || current->on(Feature::AccurateBlockPlacement));
         unsigned modes{};
-        if (current && player) modes = heldModes(*current);
+        if (current && player) {
+            modes = current->on(Feature::FlexibleBlockPlacement) ? heldModes(*current) : 0u;
+            if (!modes && heldAccurateActions(*current)) modes=FlexibleRotation;
+        }
         status.modeFlags = modes;
         status.dimension = player ? static_cast<int>(player->getDimensionId()) : 0;
         status.selectedSlot = player ? player->getSelectedItemSlot() : -1;
@@ -717,8 +864,10 @@ void tickFlexiblePlacement(LocalPlayer& player) noexcept {
         if (!current) { resetFlexiblePlacement(); return; }
         bool const enabled = current->on(Feature::FlexibleBlockPlacement);
         auto const lholoState = lholoPlacementState();
-        bool const allowed = enabled && useAllowed();
-        auto modes = allowed ? heldModes(*current) : 0u;
+        bool const allowed = useAllowed();
+        auto modes = allowed && enabled ? heldModes(*current) : 0u;
+        bool const accurate = allowed && !modes && heldAccurateActions(*current) != 0;
+        if (accurate) modes=FlexibleRotation;
         if (!allowed || !modes || lholoState == LholoPlacementState::Owned
             || lholoState == LholoPlacementState::AbiUnavailable
             || lholoState == LholoPlacementState::Absent) cancelLholoExternal();
@@ -726,8 +875,10 @@ void tickFlexiblePlacement(LocalPlayer& player) noexcept {
         flexibleClickFence.observe(keyDown(VK_RBUTTON),
             worldGeneration.load(std::memory_order_acquire), GetTickCount64());
         placementLatch.update(enabled, useAllowed(), gameHasFocus(), guiInputCaptured(),
-            (modes & FlexibleRotation) != 0, (modes & FlexibleOffset) != 0, (modes & FlexibleAdjacent) != 0);
-        if (!allowed || !placementLatch.active) { clearOverlayLocked(); return; }
+            !accurate && (modes & FlexibleRotation) != 0,
+            !accurate && (modes & FlexibleOffset) != 0,
+            !accurate && (modes & FlexibleAdjacent) != 0);
+        if (accurate || !allowed || !placementLatch.active) { clearOverlayLocked(); return; }
         auto plan = livePlan(player, modes);
         if (!plan) { cancelLholoExternal(); clearOverlayLocked(); return; }
         auto client = ll::service::getClientInstance();
@@ -777,6 +928,14 @@ void resetFlexiblePlacement() noexcept {
     clearOverlayLocked();
 }
 
+bool lholoPlacementOperationBusy() noexcept {
+    // FastBlockPlacement must not disturb a pending/owned LHolo EasyPlace
+    // transaction. Ignore Idle and Absent so ordinary native placement works.
+    auto state=lholoPlacementState();
+    return state==LholoPlacementState::Owned
+        || state==LholoPlacementState::ExternalPending
+        || state==LholoPlacementState::AbiUnavailable;
+}
 bool flexiblePlacementModifiersHeld() noexcept {
     std::lock_guard lock(placementMutex);
     return placementLatch.active;
@@ -791,16 +950,20 @@ void renderFlexiblePlacementOverlay(BaseActorRenderContext& context, bool alphaL
         auto current = settings();
         if (!snapshot.valid || !modifiersHeld || !current || !current->on(Feature::FlexibleBlockPlacement)
             || snapshot.generation != worldGeneration.load(std::memory_order_acquire)) return;
+        // All three meshes share one integer origin. The GPU only ever sees
+        // small +/- block offsets; subtract the camera in double in renderLines.
+        auto const anchor=snapshot.plan.originalSupport;
         std::vector<Line> grid, selected, destination;
-        addFaceGrid(grid, snapshot.plan.originalSupport, snapshot.plan.originalFace, snapshot.playerFacing);
-        addSelectedRegion(selected, snapshot.plan.originalSupport, snapshot.plan.originalFace,
-            snapshot.plan.region, snapshot.playerFacing);
-        addCube(destination, snapshot.plan.destination);
-        renderLines(context, grid, 0xB04DD7FFu, "PraxisFlexiblePlacementGrid", placementMaterial);
-        renderLines(context, selected, 0xE0FFD34Du, "PraxisFlexiblePlacementSelected", placementMaterial);
+        addFaceGrid(grid, snapshot.plan.originalSupport, anchor,
+            snapshot.plan.originalFace, snapshot.playerFacing);
+        addSelectedRegion(selected, snapshot.plan.originalSupport, anchor,
+            snapshot.plan.originalFace, snapshot.plan.region, snapshot.playerFacing);
+        addCube(destination, snapshot.plan.destination, anchor);
+        renderLines(context, grid, anchor, 0xB04DD7FFu, "PraxisFlexiblePlacementGrid", placementMaterial);
+        renderLines(context, selected, anchor, 0xE0FFD34Du, "PraxisFlexiblePlacementSelected", placementMaterial);
         auto const color = snapshot.admissionReason == FlexibleAdmissionReason::Accepted
             ? 0xE04DFF7Au : 0xE02D2DFFu;
-        renderLines(context, destination, color, "PraxisFlexiblePlacementDestination", placementMaterial);
+        renderLines(context, destination, anchor, color, "PraxisFlexiblePlacementDestination", placementMaterial);
     } catch (...) {}
 }
 
@@ -817,13 +980,15 @@ bool installFlexiblePlacement() {
         return false;
     }
     hookInstalled.store(true, std::memory_order_release);
-    availableFeatures.fetch_or(featureRegistryBit(static_cast<unsigned>(Feature::FlexibleBlockPlacement)));
+    availableFeatures.fetch_or(featureRegistryBit(static_cast<unsigned>(Feature::FlexibleBlockPlacement))
+        |featureRegistryBit(static_cast<unsigned>(Feature::AccurateBlockPlacement)));
     return true;
 }
 
 bool removeFlexiblePlacement() noexcept {
     resetFlexiblePlacement();
-    availableFeatures.fetch_and(~featureRegistryBit(static_cast<unsigned>(Feature::FlexibleBlockPlacement)));
+    availableFeatures.fetch_and(~(featureRegistryBit(static_cast<unsigned>(Feature::FlexibleBlockPlacement))
+        |featureRegistryBit(static_cast<unsigned>(Feature::AccurateBlockPlacement))));
     if (!hookInstalled.exchange(false, std::memory_order_acq_rel)) return true;
     bool const use = FlexibleUseOn::unhook() == 0;
     bool const build = FlexibleBuildBlock::unhook() == 0;

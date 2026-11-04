@@ -71,8 +71,8 @@ int main(int argc,char** argv) {
             /("PraxisCameraIntegrationConfig-"+std::to_string(GetCurrentProcessId())+"-"+std::to_string(GetTickCount64()));
         std::filesystem::create_directories(root/"profiles");
         std::cout<<"Isolated fixture: "<<root.string()<<'\n';
-        check(featureCount==28&&static_cast<unsigned>(Feature::Freelook)==20&&static_cast<unsigned>(Feature::FreeCamera)==21,"camera sparse slot ABI20/21 retained with appended action27");
-        check(ownedFeatureSlotMask==0x0d307fffu&&featureRegistryMask(featureCount)==0x0fffffffu,"sparse ownership preserves reserved22/25 and32-bit tails");
+        check(featureCount==31&&static_cast<unsigned>(Feature::Freelook)==20&&static_cast<unsigned>(Feature::FreeCamera)==21,"camera sparse slot ABI20/21 retained with appended action27");
+        check(ownedFeatureSlotMask==0x7d307fffu&&featureRegistryMask(featureCount)==0x7fffffffu,"sparse ownership preserves reserved22/25 and32-bit tails");
         check(featureProfileFields.size()>=22&&featureProfileFields.size()<=32,"all typed owners fit field history");
         for(unsigned i=0;i<4;++i)check(std::string_view(featureProfileFields[13+i].field)==cameraFields[i]
             &&featureProfileFields[13+i].slot==20+i/2,"camera descriptors append without shifting existing history");
@@ -133,8 +133,16 @@ int main(int argc,char** argv) {
             check(saveWorker(targetFile,loaded->config,loaded->sourceDocument),"cross-width camera Save As executes actual atomic worker");
             auto saved=read(targetFile);auto expectedWidth=std::max({featureCount,sourceWidth,targetWidth});
             check(saved["keybinds"].size()==expectedWidth&&saved["keybindModifiers"].size()==expectedWidth,"saved paired registry keeps full source/target extent");
-            for(unsigned i=0;i<expectedWidth;++i)check(saved["keybinds"][i]==(i<sourceWidth?65+int(i):i<targetWidth?128+int(i):0)
-                &&saved["keybindModifiers"][i]==(i<sourceWidth?(i+2)%9:i<targetWidth?(i+4)%9:8),"raw source declaration wins prefix; independent target gap/tail survives absent prefix");
+            for(unsigned i=0;i<expectedWidth;++i) {
+                auto expectedKey=i<sourceWidth?65+int(i):i<targetWidth?128+int(i):0;
+                auto const expectedMod=i<sourceWidth?(i+2)%9:i<targetWidth?(i+4)%9:8;
+                // Schema migration retains the existing P toggle in slot 27
+                // even for pre-Flexible source+destination profiles. Slot 28
+                // is the new Accurate feature and must remain unbound.
+                if(i==27 && sourceWidth<=27 && targetWidth<=27) expectedKey='P';
+                check(saved["keybinds"][i]==expectedKey && saved["keybindModifiers"][i]==expectedMod,
+                    "raw source declaration wins prefix; independent target gap/tail survives absent prefix");
+            }
             for(auto field:cameraFields)check(saved[field]==target[field],"absent untouched camera typed field inherits target with opaque nested null");
             auto mask=featureRegistryMask(sourceWidth);auto expectedFavorite=(target["favoriteModules"].get<std::uint32_t>()&~mask)|(source["favoriteModules"].get<std::uint32_t>()&mask);
             check(saved["favoriteModules"]==expectedFavorite,"declared raw favorite prefix contract preserves unrelated later target metadata");

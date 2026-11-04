@@ -17,6 +17,8 @@
 #include "platform/InventoryRequest.h"
 #include "platform/InventoryActions.h"
 #include "platform/FlexiblePlacement.h"
+#include "platform/FastClick.h"
+#include "platform/FastBlockPlacement.h"
 #include "render/Renderer.h"
 #include "runtime/Runtime.h"
 #include "gui/GuiBridge.h"
@@ -198,40 +200,7 @@ void suppressWeatherState(WeatherRenderObject& object){
  auto& params=object.mParams.get();
  for(auto& param:params)param.fAlpha=0.0f;
 }
-LL_TYPE_INSTANCE_HOOK(WeatherHook,ll::memory::HookPriority::Normal,WeatherRenderObject,
- &WeatherRenderObject::$ctor,void*,WeatherRenderObject&& other){
- NativeHookLifetime::Lease lease(nativeLifetime);
- // A tracked source may still contain NoRender output. Restore its current
- // saved native values before moving it, including after admission closes.
- trackedWeather.restoreSource(other,restoreWeatherState);
- void* result=origin(std::move(other));
- if(result==this)trackedWeather.constructed(*this,lease.admitted(),
-  lease.admitted()&&(settings()->renderMask&passBit(RenderPass::Weather))!=0,
-  captureWeatherState,suppressWeatherState);
- return result;
-}
-LL_TYPE_INSTANCE_HOOK(WeatherDtorHook,ll::memory::HookPriority::Normal,WeatherRenderObject,
- &WeatherRenderObject::$dtor,void){
- NativeHookLifetime::Lease lease(nativeLifetime);
- trackedWeather.destroyed(*this);
- origin();
-}
-LL_TYPE_INSTANCE_HOOK(WeatherTickHook,ll::memory::HookPriority::Normal,LevelRendererPlayer,
- &LevelRendererPlayer::$tickRain,void){
- NativeHookLifetime::Lease lease(nativeLifetime);
- // The legacy collection belongs exclusively to NoRender. No primary-camera
- // scalar may authorize WeatherChanger writes to any of these objects.
- trackedWeather.beforeTick(restoreWeatherState);
- origin();
- bool const noRenderWeather=lease.admitted()
-  &&(settings()->renderMask&passBit(RenderPass::Weather))!=0;
- trackedWeather.afterTick(noRenderWeather,captureWeatherState,restoreWeatherState,suppressWeatherState);
- if(noRenderWeather){
-  mCameraInRain=false;
-  if(!weatherSuppressLogged.exchange(true,std::memory_order_acq_rel))
-   logGuiInfo("NoRender Weather dynamic suppression active");
- }
-}
+// Client 26.60: unavailable WeatherRenderObject ctor/dtor; do not track expired owners.
 LL_TYPE_INSTANCE_HOOK(FogHook,ll::memory::HookPriority::Normal,LevelRendererPlayer,
  &LevelRendererPlayer::$setupFog,void,ScreenContext& context,float intensity){
  NativeHookLifetime::Lease lease(nativeLifetime);if(!lease.admitted()){origin(context,intensity);return;}
@@ -258,7 +227,7 @@ LL_TYPE_INSTANCE_HOOK(TickHook,ll::memory::HookPriority::Normal,LocalPlayer,
  VisualWeatherScope nonWeatherRendering(false);
  cameraCandidateBeforeTick(*this);
  origin();
- if(lease.admitted()){updateWorld(*this);tickFlexiblePlacement(*this);cameraCandidateTick(*this);observeToolProtection(*this);serviceInventoryActions();serviceHandRestock();}
+ if(lease.admitted()){updateWorld(*this);tickFlexiblePlacement(*this);tickFastBlockPlacement(*this);cameraCandidateTick(*this);observeToolProtection(*this);serviceInventoryActions();serviceHandRestock();tickFastClicks(*this);}
 }
 // SDK-typed, local FreeCamera callbacks. Lamium v0.1.8 is a behavior reference;
 // these handlers share Praxis admission/lease and do not change other owners.
@@ -282,9 +251,10 @@ template<class Hook>HookState state(){
  return {[](){return Hook::hook();},false};
 }
 std::array freeCameraHookStates{state<FreeCameraMovementHook>(),state<FreeCameraDimensionHook>()};
-std::array hookStates{state<ActorHook>(),state<ActorPositionedHook>(),state<BlockEntityHideHook>(),
- state<WorldOverlayHook>(),state<SkyHook>(),state<ParticlesHook>(),state<WeatherDtorHook>(),
- state<WeatherTickHook>(),state<WeatherHook>(),state<FogHook>(),state<FovHook>(),state<TickHook>()};
+// 26.60 still links the old sky render detour, but no longer exposes
+// the non-positioned actor render overload. Keep the positioned actor hook.
+std::array hookStates{state<ActorPositionedHook>(),state<BlockEntityHideHook>(),
+ state<WorldOverlayHook>(),state<SkyHook>(),state<ParticlesHook>(),state<FogHook>(),state<FovHook>(),state<TickHook>()};
 }
 void captureClient(IClientInstance& client){
  NativeHookLifetime::Lease lease(nativeLifetime);if(!lease.admitted())return;
@@ -323,7 +293,7 @@ bool installNative(){
  nativeLifetime.registrationStarted();
  cameraCandidateStart();
  for(auto& h:hookStates){h.active=h.install()==0;if(!h.active){removeNative();return false;}}
- if(!installTimeChanger()){removeNative();return false;}
+ if(!installTimeChanger())logGuiInfo("TimeChanger client.3 symbols mapped, but native hook installation failed; capability safely disabled");
  if(!installWeatherChanger()){removeNative();return false;}
   bool freeCameraReady=true;
   for(auto& hook:freeCameraHookStates){if(!hook.active)hook.active=hook.install()==0;freeCameraReady&=hook.active;}
@@ -332,6 +302,8 @@ bool installNative(){
  if(!installToolProtection())logGuiInfo("ToolProtection/WeaponSwitch backend unavailable; existing features retained");
  bool const inventoryRequestsReady=inventory::installRequests();
  if(!inventoryRequestsReady)logGuiInfo("Inventory request observer unavailable; inventory utilities remain unavailable");
+ // 26.60: HandRestock HUD reads are guarded by runtime admission and
+ // a complete exception barrier; retain fail-closed behavior on error.
  if(inventoryRequestsReady && !installHandRestock())logGuiInfo("HandRestock backend unavailable; existing features retained");
  if(inventoryRequestsReady && !installInventoryActions())logGuiInfo("InventorySort/InventoryTransfer backend unavailable; existing features retained");
  zoomMouseListener=ll::event::EventBus::getInstance().emplaceListener<ll::event::MouseInputEvent>(
@@ -360,8 +332,10 @@ bool installNative(){
  if(!startInformationRuntime()){removeNative();return false;}
  if(!installShulkerPreview()){removeNative();return false;}
  if(!installFlexiblePlacement()){removeNative();return false;}
+ installFastClicks();
+ installFastBlockPlacement();
  RenderMask masks=passBit(RenderPass::Entities)|passBit(RenderPass::Items)|passBit(RenderPass::BlockEntities)|
-  passBit(RenderPass::Hud)|passBit(RenderPass::Particles)|passBit(RenderPass::Sky)|passBit(RenderPass::Weather)|passBit(RenderPass::Fog)|passBit(RenderPass::Lightning);
+  passBit(RenderPass::Hud)|passBit(RenderPass::Particles)|passBit(RenderPass::Sky)|passBit(RenderPass::Fog)|passBit(RenderPass::Lightning);
  masks|=inspectEffectPatches();availableRenderPasses.store(masks,std::memory_order_release);
  if(masks&antiEffectPasses)availableFeatures.fetch_or(featureRegistryBit(unsigned(Feature::AntiEffect)));
  availableFeatures.fetch_or((1u<<static_cast<unsigned>(Feature::NoRender))
@@ -400,6 +374,8 @@ bool removeNative()noexcept{
  bool inventoryActionsRemoved=removeInventoryActions();
  bool inventoryRequestsRemoved=inventory::removeRequests();
  bool flexiblePlacementRemoved=removeFlexiblePlacement();
+ removeFastClicks();
+ removeFastBlockPlacement();
  bool ok=shutdownGuiBackend();
  if(!timeChangerRemoved||!weatherChangerRemoved)ok=false;
  if(!toolProtectionRemoved)ok=false;

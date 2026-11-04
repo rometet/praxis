@@ -26,6 +26,15 @@ int main(){
   check(p.disabledCandidates==std::vector<std::string>{"c"},"only selectable catalog identities get disable proposals");
   check(p.outsideScope.size()==3,"font, unknown and subpack remain out of proposal scope");
   check(!matchesApplied(c.packs[0],{"ua","2.0.0",""})&&!matchesApplied(c.packs[0],{"ua","1.0.0","sub"}),"version/subpack do not alias ordinary pack");
+  // 26.60 may expose valid native registered Resources as PackType::Invalid.
+  AppliedStackView current2660{true,{{"ua","1.0.0","",0},{"ub","1.0.0","",0},
+                                    {"uf","1.0.0","",0}}};
+  auto parity=makePackPlan(c,s,current2660,false);
+  check(parity.currentKnown&&parity.disabledCandidates.empty()
+        &&parity.outsideScope.size()==1,"native type 0 maps only approved local packs");
+  check(appliedTo(c.packs[0],current2660)==true
+        &&appliedTo(c.packs[3],current2660)==false,
+        "26.60 type 0 does not expose unsupported catalog modules");
   check(!matchesApplied(c.packs[0],{"ua","1.0.0","",3}),"copy-protected identity cannot alias an ordinary texture by UUID/version");
   AppliedStackView protectedCurrent{true,{{"ua","1.0.0","",3}}};auto protectedPlan=makePackPlan(c,s,protectedCurrent,false);
   check(protectedPlan.outsideScope.size()==1&&protectedPlan.disabledCandidates.empty(),"protected pack remains outside proposal disable/order edits");

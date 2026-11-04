@@ -668,6 +668,12 @@ bool bindAllowed(int key,unsigned modifiers) {
         {unsigned(flexible.rotationKey),flexible.rotationModifiers,1},
         {unsigned(flexible.offsetKey),flexible.offsetModifiers,1},
         {unsigned(flexible.adjacentKey),flexible.adjacentModifiers,1}))return false;
+    if (current->on(Feature::AccurateBlockPlacement)) {
+        auto const& accurate=current->accuratePlacement;
+        if (hotkeyConflict(chord,{unsigned(accurate.intoKey),accurate.intoModifiers,1})
+            || hotkeyConflict(chord,{unsigned(accurate.reverseKey),accurate.reverseModifiers,1}))
+            return false;
+    }
     for(unsigned i=0;i<featureCount;++i)if((ownedFeatureSlotMask&featureRegistryBit(i))
         &&i!=20&&i!=21&&hotkeyConflict(chord,{unsigned(current->keys[i]),current->keyModifiers[i],1}))return false;
     for(auto key:mapActionBindings())if(hotkeyConflict(chord,{unsigned(key),anyModifiers,1}))return false;

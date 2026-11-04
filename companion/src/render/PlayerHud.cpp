@@ -82,7 +82,7 @@ void drawNativeOffhandHud(ll::event::AfterUIRenderEvent& event) {
     std::array obstacles{paperDollBounds(lx,ly),informationHudBounds(),durabilityHudBounds()};
     auto panel=placeHud(transformHud({o.offhandX,o.offhandY,244*scale,64*scale},transform,width,height),width,height,obstacles);
     auto area=[&](float x,float y,float w,float h){return RectangleArea{x*lx,(x+w)*lx,y*ly,(y+h)*ly};};
-    auto& font=ui.mDebugTextFontHandle->getFont();float lineHeight=font.getWrapHeight();if(!std::isfinite(lineHeight)||lineHeight<=0)return;
+    auto const& fontPtr=ui.mDebugTextFontHandle->mDefaultFont.get();if(!fontPtr)return;auto& font=*fontPtr;float lineHeight=font.getWrapHeight();if(!std::isfinite(lineHeight)||lineHeight<=0)return;
     auto text=[&](float y,std::string value) {
         float ts=nativeTextScale(14*scale,ly,lineHeight);
         if(value.size()>1024){std::size_t end=1024;while(end&&(static_cast<unsigned char>(value[end])&0xc0)==0x80)--end;value.resize(end);}

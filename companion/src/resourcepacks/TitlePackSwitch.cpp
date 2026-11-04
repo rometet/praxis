@@ -1,6 +1,11 @@
+#include "mc/resources/ResourcePackSelectionPolicy.h"
 #include "resourcepacks/TitlePackSwitch.h"
+#include "ll/api/service/TargetedBedrock.h"
+#include "mc/deps/core/threading/TaskGroup.h"
 #include "resourcepacks/TitlePackControl.h"
 #include "resourcepacks/TitlePackNativeAdapter.h"
+#include "resourcepacks/NativePackRuntimeLookup2660.h"
+#include "resourcepacks/NativeVirtualSlot2660.h"
 #include "resourcepacks/TitleNativeCast.h"
 #include "core/NativeHookLifetime.h"
 #include "core/Settings.h"
@@ -8,6 +13,7 @@
 #include "ll/api/memory/Hook.h"
 #include "mc/client/game/MinecraftGame.h"
 #include "mc/client/game/IClientInstance.h"
+#include "mc/client/game/ClientInstance.h"
 #include "mc/client/gui/screens/UIScene.h"
 #include "mc/client/gui/screens/ScreenView.h"
 #include "mc/client/gui/screens/interfaces/ISceneStack.h"
@@ -33,6 +39,10 @@
 #include <cstdio>
 
 namespace praxis::companion::packs {
+// The world-specific wrapper lives in the WorldPackSwitch TU. Keep its
+// lifetime and native task receipts independent from the title owner.
+brstd::move_only_function<void()> wrapWorldScheduledCompletion(
+    brstd::move_only_function<void()> callback) noexcept;
 namespace {
 auto& lifetime=*new NativeHookLifetime;
 std::atomic_bool attempted{}, installed{}, imageReady{}, imageFailed{}, worldSeen{};
@@ -49,16 +59,18 @@ std::uintptr_t address(void const* p){return reinterpret_cast<std::uintptr_t>(p)
 // image and generated SDK field/union ABI. This does not resolve a function,
 // inspect instructions, or validate a PreLoader callable numerically. The SDK
 // exposes no runtime verification of ScreenEventData's owning-copy/layout
-// contract; admit only the already audited image until real-machine validation.
+// contract; pin this exact 26.60.05 game image to avoid cross-version detours.
+// This file fingerprint is NOT proof of the new APIs' callable ABI;
+// those gates are still checked independently before any release.
 // Only this process-pinned worker performs file I/O; no game object is read by a worker.
 bool exactImage(){
-    constexpr std::array<unsigned char,32> expected{0xf8,0x2d,0xc9,0x67,0xd3,0x80,0x0b,0x7b,0x89,0x2c,0x38,0xa9,0x7b,0x67,0x2e,0x5f,0x32,0x57,0xd9,0xc0,0xc0,0xcf,0xfe,0xcc,0xdc,0x5f,0x83,0xde,0x02,0x36,0x3b,0x2a};
+    constexpr std::array<unsigned char,32> expected{0xd5,0x2f,0xc9,0x2c,0x66,0x51,0xcd,0x55,0x3f,0x1c,0xb8,0x3e,0x57,0xac,0x68,0xe4,0xb0,0x62,0xdd,0x20,0x4c,0x25,0xec,0xa4,0xcb,0xe3,0xc2,0xba,0xae,0x2c,0x15,0x67};
     std::array<wchar_t,32768> path{};auto count=GetModuleFileNameW(nullptr,path.data(),static_cast<DWORD>(path.size()));
     if(!count||count>=path.size())return false;
     HANDLE file=CreateFileW(path.data(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,FILE_FLAG_SEQUENTIAL_SCAN,nullptr);
     if(file==INVALID_HANDLE_VALUE)return false;
     struct FileExit {HANDLE h;~FileExit(){CloseHandle(h);}} fileExit{file};
-    LARGE_INTEGER size{};if(!GetFileSizeEx(file,&size)||size.QuadPart!=311249032)return false;
+    LARGE_INTEGER size{};if(!GetFileSizeEx(file,&size)||size.QuadPart!=323853408)return false;
     BCRYPT_ALG_HANDLE algorithm{};BCRYPT_HASH_HANDLE hash{};
     struct HashExit {BCRYPT_ALG_HANDLE& a;BCRYPT_HASH_HANDLE& h;~HashExit(){if(h)BCryptDestroyHash(h);if(a)BCryptCloseAlgorithmProvider(a,0);}} hashExit{algorithm,hash};
     if(BCryptOpenAlgorithmProvider(&algorithm,BCRYPT_SHA256_ALGORITHM,nullptr,0)<0)return false;
@@ -67,14 +79,31 @@ bool exactImage(){
     std::array<unsigned char,65536> buffer{};std::uint64_t total{};
     for(;;){DWORD read{};if(!ReadFile(file,buffer.data(),static_cast<DWORD>(buffer.size()),&read,nullptr))return false;
         if(!read)break;if(titlePackControl().stopped()||BCryptHashData(hash,buffer.data(),read,0)<0)return false;total+=read;}
-    std::array<unsigned char,32> result{};return total==311249032&&BCryptFinishHash(hash,result.data(),static_cast<ULONG>(result.size()),0)>=0&&result==expected;
+    std::array<unsigned char,32> result{};return total==323853408&&BCryptFinishHash(hash,result.data(),static_cast<ULONG>(result.size()),0)>=0&&result==expected;
 }
 std::vector<std::string> keys(std::vector<PackInstanceId> const& ids){
     std::vector<std::string> out;out.reserve(ids.size());for(auto const& id:ids)
         out.push_back(std::to_string(unsigned(id.mPackId->mPackType))+"/"+id.mPackId->mId->asString()+"/"+id.mPackId->mVersion->asString()+"/"+id.mSubpackName.get());return out;
 }
 std::vector<PackInstanceId> ids(ResourcePackStack const* stack){
-    if(!stack)return {};if(stack->mStack->size()>512)throw std::runtime_error("stack budget");return stack->getStackAsIdentities();
+        if(!stack)return {};
+    if(stack->mStack->size()>512)throw std::runtime_error("stack budget");
+    std::vector<PackInstanceId> out;
+    out.reserve(stack->mStack->size());
+    for(auto const& instance:*stack->mStack) {
+        // SDK 26.60 exposes the pack's manifest identity but not the
+        // optional subpack's human-readable name. Do not manufacture one.
+        if(instance.mSubpackIndex>0)throw std::runtime_error("subpack identity unavailable");
+        std::shared_ptr<ResourcePack> pack=instance.mPack.get();
+        if(!pack||!pack->mImpl.get()||!pack->mImpl->mPack.get()
+            ||!pack->mImpl->mPack->mManifest)
+            throw std::runtime_error("pack manifest unavailable");
+        if(instance.mSubpackIndex>=0 && !pack->mImpl->mSubResourcePacks.get().empty())
+            throw std::runtime_error("active subpack selection name unavailable");
+        auto const& identity=pack->mImpl->mPack->mManifest->mIdentity.get();
+        out.emplace_back(identity,std::string{});
+    }
+    return out;
 }
 AppliedStackView viewIds(std::vector<PackInstanceId> const& values){
     AppliedStackView out;out.known=true;
@@ -112,7 +141,7 @@ Frame frame(MinecraftGame& game){
     out.model=controller->mMainMenuScreenModel;if(!out.model)return out;
     if(&out.model->getResourcePackManager()!=&manager||out.model->isInGame())return {};
     out.start=out.client->getScreenName()=="start_screen";
-    out.owner={address(&game),address(&manager),address(out.client.get()),0,thread,true,out.model->isResourceLoadingFinished(),manager.mPendingRestack,game.isReadyToRender()};
+    out.owner={address(&game),address(&manager),address(out.client.get()),0,thread,true,native2660::loadingFinished(*out.model),manager.mPendingRestack,game.isReadyToRender()};
     return out;
 }
 struct Operation {
@@ -147,7 +176,7 @@ bool pathEqual(std::string const& a,std::string const& b){
     auto path=[](std::string const& s){return std::filesystem::path(std::u8string_view(reinterpret_cast<char8_t const*>(s.data()),s.size())).lexically_normal().wstring();};
     auto x=path(a),y=path(b);return !x.empty()&&CompareStringOrdinal(x.c_str(),-1,y.c_str(),-1,TRUE)==CSTR_EQUAL;
 }
-std::string packPath(ResourcePack const& pack){auto const& data=pack.mImpl.get()->mPack.get();return data&&data->mAccessStrategy?data->mAccessStrategy->getPackLocation().getFullPath().value:std::string{};}
+std::string packPath(ResourcePack const& pack){auto const& data=pack.mImpl.get()->mPack.get();return data&&data->mAccessStrategy?data->mAccessStrategy->getPackLocation().mPath.get().value:std::string{};}
 bool ordinary(ResourcePack const& pack,Pack const& entry){
     auto const& native=pack.mImpl.get()->mPack.get();if(!native||!native->mManifest||!pathEqual(packPath(pack),entry.key))return false;
     auto const& manifest=*native->mManifest;auto const& identity=manifest.mIdentity.get();
@@ -172,7 +201,7 @@ void prepare(std::shared_ptr<Operation> const& op,MinecraftGame& game,Frame cons
         for(auto* pack:local){if(!pack||!pathEqual(packPath(*pack),entry->key))continue;
             auto const& native=pack->mImpl.get()->mPack.get();if(!native||!native->mManifest)continue;
             auto const& identity=native->mManifest->mIdentity.get();if(!ordinary(*pack,*entry))continue;
-            auto owned=repository.getResourcePackSatisfiesPackId(identity,true);if(!owned||owned.get()!=pack||found)throw std::runtime_error("pack の所有権または一意な登録を確認できません。");
+            auto owned=repository.getResourcePackSatisfiesPackId(identity,true,ResourcePackSelectionPolicy::Default);if(!owned||owned.get()!=pack||found)throw std::runtime_error("pack の所有権または一意な登録を確認できません。");
             found=std::move(owned);
         }
         if(!found)throw std::runtime_error("未登録・非対応の候補です。通常の管理機能で確認してください。");
@@ -184,7 +213,7 @@ void prepare(std::shared_ptr<Operation> const& op,MinecraftGame& game,Frame cons
     auto merged=mergeTitleGlobal<PackInstanceId>(op->oldIds,selected,[&](PackInstanceId const& old){
         auto editable=std::find_if(catalog.packs.begin(),catalog.packs.end(),[&](auto const& p){return p.selectable&&old.mSubpackName->empty()&&old.mPackId->mPackType==PackType::Resources&&old.mPackId->mId->asString()==p.uuid&&old.mPackId->mVersion->asString()==p.version;});
         if(editable!=catalog.packs.end()){
-            auto owned=repository.getResourcePackSatisfiesPackId(old.mPackId.get(),true);
+            auto owned=repository.getResourcePackSatisfiesPackId(old.mPackId.get(),true,ResourcePackSelectionPolicy::Default);
             if(!owned||std::find(local.begin(),local.end(),owned.get())==local.end()||!ordinary(*owned,*editable))throw std::runtime_error("現在の pack は通常の管理機能で変更してください。");
             op->ownedPacks.push_back(std::move(owned));
         }
@@ -206,7 +235,7 @@ void applyCallback(std::shared_ptr<Operation> const& op,MinecraftScreenModel& mo
             context.fresh=!worldSeen.load()&&!worldGeneration.load()&&runtimeReady.load()&&!model.isInGame()
                 &&!op->client->getLocalPlayer()&&address(&manager)==context.manager
                 &&model.mClient.get().get()==op->client.get()&&GetCurrentThreadId()==context.thread;
-            context.loadingFinished=model.isResourceLoadingFinished();context.pending=manager.mPendingRestack;
+            context.loadingFinished=native2660::loadingFinished(model);context.pending=manager.mPendingRestack;
             return context;
         },
         [&](TitlePackAction action){
@@ -223,7 +252,8 @@ void applyCallback(std::shared_ptr<Operation> const& op,MinecraftScreenModel& mo
 }
 
 void navigate(std::shared_ptr<Operation> const& op){
-    op->model->navigateToApplyResourcePacksScreen([op](MinecraftScreenModel& model){applyCallback(op,model);});
+    if(!native2660::navigateTitle(*op->model,[op](MinecraftScreenModel& model){applyCallback(op,model);}))
+        throw std::runtime_error("Minecraft 26.60 native resource-pack apply navigation is not yet resolved");
 }
 void tick(MinecraftGame& game) noexcept {
     if(!installed.load()||titlePackControl().stopped()||(ownerThread.load()&&ownerThread.load()!=GetCurrentThreadId())||ticking.test_and_set())return;
@@ -236,7 +266,7 @@ void tick(MinecraftGame& game) noexcept {
     TitlePackView view;view.revision=revision.load();view.until=titlePackNow()+1000;
     try{
         if(!imageReady.load()){view.status=imageFailed.load()?"対象ゲームの identity を確認できません。":"対象ゲームの identity を別スレッドで確認中です。";titlePackControl().publish(std::move(view));return;}
-        if(!imageReported.exchange(true))logGuiInfo("RESOURCEPACK_TITLE image_guard=verified formal_sdk=26.51.5 route=native_application_screen title_only=1");
+        if(!imageReported.exchange(true))logGuiInfo("RESOURCEPACK_TITLE image_guard=verified formal_sdk=26.60.5 route=native_application_screen title_only=1");
         auto current=frame(game);auto op=active.load();
         if(observationLost.load()&&op){std::lock_guard lock(op->mutex);op->transaction.recovery();}
         view.available=current.start&&current.owner.usable()&&!callbacks.load()&&!observationLost.load()&&retained.size()<OperationBudget;
@@ -278,6 +308,57 @@ void tick(MinecraftGame& game) noexcept {
         titlePackControl().publish(std::move(view));
     }catch(...){if(auto op=active.load()){std::lock_guard lock(op->mutex);op->transaction.recovery();}view.available=false;view.current={};view.status="現在状態の確認に失敗しました。適用を停止しています。";titlePackControl().publish(std::move(view));}
 }
+// 26.60 no longer exports BackgroundTask<void,void>::create, which the
+// original title AND world factory detours both referenced. Hook the native
+// TaskGroup owner queue ONCE for both resource-pack flows. A single origin
+// call retains the game's asynchronous execution and completion ordering.
+struct SharedNativeCompletionQueueHook : TaskGroup {
+    using Worker=brstd::move_only_function<TaskResult()>;
+    using Completion=brstd::move_only_function<void()>;
+    using Result=Bedrock::Threading::Async<void>;
+    // Verified against Minecraft.Windows.exe 26.60.05 native queue body
+    // (RVA 0x772A90): RCX=this, RDX=hidden Async<void> output,
+    // R8=TaskStartInfo, R9=worker and the callback is the fifth argument.
+    // The previous origin declaration put output LAST, shifted the actual
+    // arguments and crashed during routine Minecraft world initialization.
+    using Origin=void (*)(TaskGroup*,Result*,TaskStartInfo const&,Worker&&,Completion&&);
+    static inline Origin nativeOrigin{};
+    static inline ll::memory::FuncPtr nativeTarget{};
+    static int hook(TaskGroup& nativeGroup) {
+        if(nativeOrigin)return 0;
+        auto slot=native2660::zeroAdjustVirtualSlot(&TaskGroup::queue_DEPRECATED);
+        if(!slot)return -11;
+        if(*slot>1024)return -12;
+        auto table=*reinterpret_cast<void* const* const*>(&nativeGroup);
+        if(!table||!table[*slot])return -13;
+        nativeTarget=table[*slot];
+        if(ll::memory::hookEx(nativeTarget,ll::memory::toFuncPtr(&SharedNativeCompletionQueueHook::detour),
+            reinterpret_cast<ll::memory::FuncPtr*>(&nativeOrigin),
+            ll::memory::HookPriority::Normal,ll::memory::SaveNone,true)!=0) {
+            nativeTarget=nullptr;
+            return -14;
+        }
+        return 0;
+    }
+    Result callNative(TaskStartInfo const& startInfo,Worker&& worker,Completion&& callback) {
+        // Preserve the native queue member ABI: this in RCX, output in RDX.
+        Result result{};
+        nativeOrigin(this,&result,startInfo,std::move(worker),std::move(callback));
+        return result;
+    }
+    Result detour(TaskStartInfo const& startInfo,Worker&& worker,Completion&& callback) {
+        NativeHookLifetime::Lease lease(lifetime);
+        if(!lease.admitted()||!callback)
+            return callNative(startInfo,std::move(worker),std::move(callback));
+        bool failed{};
+        auto wrapped=wrapTitleNativeCallable<void>(
+            titleNativeContext,lifetime,callbacks,std::move(callback),
+            [](Completion body){return std::move(body);},failed);
+        if(failed)observationLost=true;
+        wrapped=wrapWorldScheduledCompletion(std::move(wrapped));
+        return callNative(startInfo,std::move(worker),std::move(wrapped));
+    }
+};
 struct NativeCycle {std::shared_ptr<Operation> op;TitleNativeContext context;};
 NativeCycle entered(MinecraftGame& game,ResourcePackManager& manager,bool fullVanilla){
     revision.fetch_add(1);auto op=active.load();if(!op)return {};
@@ -289,7 +370,14 @@ NativeCycle entered(MinecraftGame& game,ResourcePackManager& manager,bool fullVa
 // These are the same exact SDK targets/signatures already used by the passive
 // observer. No new native target/RVA; each detour calls origin exactly once.
 LL_TYPE_INSTANCE_HOOK(TitleUpdateHook,ll::memory::HookPriority::Normal,MinecraftGame,&MinecraftGame::$update,void){
-    NativeHookLifetime::Lease lease(lifetime);origin();if(lease.admitted())tick(*this);
+    NativeHookLifetime::Lease lease(lifetime);
+    origin();
+    if(lease.admitted()) {
+        auto client=ll::service::getClientInstance();
+        if(client && !ensureSharedNativeCompletionQueue(*client))
+            observationLost=true;
+        tick(*this);
+    }
 }
 LL_TYPE_INSTANCE_HOOK(TitleActiveHook,ll::memory::HookPriority::Normal,MinecraftGame,&MinecraftGame::_onActiveResourcePacksChanged,void,ResourcePackManager& manager,bool fullVanilla){
     NativeHookLifetime::Lease lease(lifetime);NativeCycle cycle;
@@ -332,21 +420,31 @@ LL_TYPE_STATIC_HOOK(TitleWorkerFactoryHook,ll::memory::HookPriority::Normal,Titl
     return titleFactory<TaskResult>(owner,info,std::move(predecessor),async,std::move(task),
         [](auto owner,auto const& info,auto predecessor,bool async,auto task){return origin(owner,info,std::move(predecessor),async,std::move(task));});
 }
-LL_TYPE_STATIC_HOOK(TitleCallbackFactoryHook,ll::memory::HookPriority::Normal,TitleCallbackTask,&TitleCallbackTask::create,std::shared_ptr<TitleCallbackTask>,
-    gsl::not_null<IBackgroundTaskOwner*> owner,TaskStartInfo const& info,Bedrock::Threading::Async<void> predecessor,
-    bool async,brstd::move_only_function<void()> task){
-    NativeHookLifetime::Lease lease(lifetime);
-    if(!lease.admitted())return origin(owner,info,std::move(predecessor),async,std::move(task));
-    return titleFactory<void>(owner,info,std::move(predecessor),async,std::move(task),
-        [](auto owner,auto const& info,auto predecessor,bool async,auto task){return origin(owner,info,std::move(predecessor),async,std::move(task));});
-}
 
+
+}
+bool ensureSharedNativeCompletionQueue(IClientInstance& client) noexcept {
+    if(!installed.load())return false;
+    static std::atomic_int previousError{};
+    int code{};
+    try {code=SharedNativeCompletionQueueHook::hook(client.getTaskGroup());}
+    catch(...){code=-21;}
+    if(code && previousError.exchange(code)!=code)
+        packDiagnostic("RESOURCEPACK_WORLD event=queue_virtual_slot_admission stage=%d pmf_bytes=%zu",
+            code,sizeof(decltype(&TaskGroup::queue_DEPRECATED)));
+    return code==0;
 }
 bool installTitlePackSwitch() noexcept {
     if(attempted.exchange(true))return installed.load();
     try{
         if(!lifetime.prepare(pin))return false;lifetime.registrationStarted();
-        if(TitleUpdateHook::hook()!=0||TitleActiveHook::hook()!=0||TitleFinishHook::hook()!=0||TitleWorkerFactoryHook::hook()!=0||TitleCallbackFactoryHook::hook()!=0||!lifetime.open()){lifetime.close();return false;}
+        // Native 26.60 BackgroundTask<TaskResult,void>::create does not have
+        // a validated ABI compatible with the copied SDK static-hook
+        // signature. Both title and world hooks previously targeted this
+        // same function and crashed during ordinary world initialization,
+        // before any Praxis resource-pack request. The queue completion
+        // observer remains independently installed; no task factory detours.
+        if(TitleUpdateHook::hook()!=0||TitleActiveHook::hook()!=0||TitleFinishHook::hook()!=0||!lifetime.open()){lifetime.close();return false;}
         installed=true;
         std::thread([]{try{auto ready=exactImage();imageReady=ready;imageFailed=!ready;}catch(...){imageFailed=true;}}).detach();return true;
     }catch(...){installed=false;lifetime.close();return false;}

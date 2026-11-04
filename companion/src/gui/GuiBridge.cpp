@@ -19,6 +19,7 @@
 #include "core/BlockStateComparePolicy.h"
 #include "gui/LegacyUiFont.h"
 #include "platform/CameraCandidate.h"
+#include "platform/FastBlockPlacement.h"
 
 #ifndef PRAXIS_GUI_HEADLESS_TEST
 #include "ll/api/mod/ModManagerRegistry.h"
@@ -125,9 +126,16 @@ constexpr std::array cards{
     ModuleCard{Feature::FreeCamera, "FreeCamera", "WASD・Space・Shiftでカメラを移動", false},
     ModuleCard{Feature::AntiEffect, "AntiEffect", "炎・ポータルの画面効果を抑制", false},
     ModuleCard{Feature::OffhandSwap, "OffhandSwap", "キー操作でメインとオフハンドを持ち替え", true},
+    ModuleCard{Feature::FastRightClick, "FastRightClick", "Hold right click: repeat item use (not block placement)", true},
+    ModuleCard{Feature::FastLeftClick, "FastLeftClick", "Hold left click: extra block-break attempts per tick", true},
+    ModuleCard{Feature::AccurateBlockPlacement, "AccurateBlockPlacement", "Into / Reverse facing controls", true},
     ModuleCard{Feature::FlexibleBlockPlacement, "FlexibleBlockPlacement", "R/G/Hを押して5領域の配置・回転・隣接を選択", true},
 };
 static_assert(cards.size() <= featureCount);
+// Keep the card index stable for existing favorites, but do not expose unported placement.
+constexpr bool hiddenUnportedPlacement(Feature feature) noexcept {
+    return feature==Feature::AccurateBlockPlacement;
+}
 constexpr unsigned favoriteSlot(unsigned card) noexcept {
  return favoriteSlotForCard(card,cards[card].feature);
 }
@@ -161,6 +169,9 @@ bool* enabledField(RuntimeConfig& config, Feature feature) noexcept {
     case Feature::FreeCamera: return &config.freeCamera;
     case Feature::AntiEffect: return &config.antiEffect;
     case Feature::FlexibleBlockPlacement: return &config.flexibleBlockPlacement;
+    case Feature::AccurateBlockPlacement: return &config.accurateBlockPlacement;
+    case Feature::FastRightClick: return &config.fastRightClick;
+    case Feature::FastLeftClick: return &config.fastLeftClick;
     default: return nullptr;
     }
 }
@@ -628,6 +639,58 @@ void drawDetails(RuntimeConfig& config, Feature feature, bool& changed) {
         ImGui::TextWrapped("初期は無効。ONにすると、設定した残り耐久値・耐久率の下限で採掘を止めます。攻撃の保護は上の設定で選択。押し直しても下限は解除されません。再開は道具を交換するか、この機能をOFFにします。道具の使用操作や一度に複数の耐久値を使う操作は対象外です。");
         break;
     }
+    case Feature::FastRightClick:
+    case Feature::FastLeftClick: {
+        bool const right=feature==Feature::FastRightClick;
+        auto& o=right?config.fastRightClickOptions:config.fastLeftClickOptions;
+        ImGui::SeparatorText(right?"Fast Right Click":"Fast Left Click");
+        ImGui::TextWrapped("Client-side Tweakeroo-inspired repeat while holding the normal mouse button.");
+        ImGui::TextWrapped(right
+            ? "FastRightClick: 1-64 extra uses per game tick (Tweakeroo count range)."
+            : "FastLeftClick: 1-8 extra break attempts per game tick.");
+        changed |= ImGui::SliderInt("Extra clicks / game tick",
+            &o.clicksPerTick,1,right?64:8);
+        changed |= ImGui::SliderInt("Interval (game ticks)", &o.tickInterval,1,10);
+        // FastBlockPlacement is not offered in this 26.60 preview.
+        if(right) ImGui::TextWrapped("Experience bottles currently use vanilla speed; extra repeats disabled.");
+        if(right) {
+            changed |= ImGui::Checkbox("Use held item in air",&o.allowAirUse);
+            changed |= ImGui::Checkbox("Allow interacting with clickable blocks",&o.allowInteractiveBlocks);
+            // Advanced block placement is intentionally unavailable in 26.60 preview.
+            ImGui::TextWrapped("Item use is the default: bone meal and instant-use items. "
+                "Advanced block placement is unavailable in this 26.60 preview.");
+            ImGui::TextWrapped("Hold-use items such as food, bows and chargeable items "
+                "are excluded to preserve native charging and consumption.");
+        } else {
+            changed |= ImGui::Checkbox("Allow survival break attempts (advanced)",&o.allowSurvivalBreaking);
+            ImGui::TextWrapped("Default: creative block breaking only. "
+                "In survival normal hold-to-mine is preserved; extra start-destroy attempts "
+                "may not speed up mining and are server-limited.");
+        }
+        ImGui::TextWrapped("No extra clicks while GUI open, unfocused, or Flexible "
+            "placement keys are held. Server/vanilla cooldowns still apply.");
+        break;
+    }
+    case Feature::AccurateBlockPlacement: {
+        auto& o = config.accuratePlacementOptions;
+        ImGui::SeparatorText("Accurate Block Placement");
+        ImGui::TextWrapped("Tweakeroo-inspired Into and Reverse. Hold the action key and place a block.");
+        ImGui::BulletText("Into (%c): point the block towards the clicked support side",o.intoKey);
+        ImGui::BulletText("Reverse (%c): reverse the normal facing",o.reverseKey);
+        ImGui::TextWrapped("Hold both keys to reverse Into. Observers use reversed sensor/output semantics.");
+        ImGui::TextWrapped("Supported: pistons, observers, droppers, dispensers, furnaces, chests, barrels.");
+        ImGui::TextWrapped("Configure the action keys below. Native placement requires LHolo ABI v2.");
+        int ik=o.intoKey,rk=o.reverseKey;
+        ImGui::SetNextItemWidth(100.f);
+        changed |= ImGui::InputInt("Into key VK",&ik);
+        ImGui::SetNextItemWidth(100.f);
+        changed |= ImGui::InputInt("Reverse key VK",&rk);
+        o.intoKey=std::clamp(ik,0,255);o.reverseKey=std::clamp(rk,0,255);
+        changed |= modifierSetting("Into modifier##accurate",o.intoModifiers);
+        changed |= modifierSetting("Reverse modifier##accurate",o.reverseModifiers);
+        ImGui::TextDisabled("Key codes: I = 73, O = 79. Set 0 to unbind an action.");
+        break;
+    }
     case Feature::FlexibleBlockPlacement: {
         auto& o = config.flexiblePlacementOptions;
         ImGui::SeparatorText("Flexible Block Placement - 3 modes");
@@ -1088,7 +1151,7 @@ void drawLegacyPraxis(void* context) noexcept {
             drawUnifiedHotkeys(config,changed,bindingEdits);
         } else if (selected == -5) {
             ImGui::TextUnformatted("Praxis Client");
-            disabledTextWrapped("Minecraft Bedrock 26.51.5 / LeviLamina 26.51.5");
+            disabledTextWrapped("Minecraft Bedrock 1.26.60.05 / LeviLamina Client 26.60.0");
             ImGui::Separator();
             ImGui::TextWrapped("Praxisの便利機能を設定する画面です。F10で開閉します。");
         } else if (selected == -6) {
@@ -1104,11 +1167,12 @@ void drawLegacyPraxis(void* context) noexcept {
             ImGui::TextUnformatted("機能");
             unsigned onCount=0;
             for(auto const& card:cards) {
+                if(hiddenUnportedPlacement(card.feature))continue;
                 auto* enabled=enabledField(config,card.feature);
                 if(enabled&&*enabled)++onCount;
             }
             ImGui::SameLine();
-            ImGui::TextDisabled("%u / %zu ON",onCount,cards.size());
+            ImGui::TextDisabled("%u / %zu ON",onCount,cards.size()-1);
             ImGui::SetNextItemWidth(-1.0f);
             ImGui::InputTextWithHint("##module_search", "機能名・説明を検索", search, sizeof(search));
             ImGui::Spacing();
@@ -1116,6 +1180,7 @@ void drawLegacyPraxis(void* context) noexcept {
             std::vector<std::size_t> filtered;
             for (std::size_t i = 0; i < cards.size(); ++i) {
                 auto const& card = cards[i];
+                if(hiddenUnportedPlacement(card.feature))continue;
                 int const category = moduleCategory(card);
                 bool const favorite = (config.favoriteModules & (1u << favoriteSlot(i))) != 0;
                 if (categoryFilter >= 0 && category != categoryFilter) continue;
@@ -1225,7 +1290,8 @@ void drawLegacyPraxis(void* context) noexcept {
                 }
                 ImGui::EndChild();
             }
-        } else if (selected >= 0 && selected < static_cast<int>(cards.size())) {
+        } else if (selected >= 0 && selected < static_cast<int>(cards.size())
+                && !hiddenUnportedPlacement(cards[static_cast<std::size_t>(selected)].feature)) {
             auto const& card = cards[static_cast<std::size_t>(selected)];
             if (ImGui::Button("< 機能一覧へ戻る")) {
                 selected = -1;

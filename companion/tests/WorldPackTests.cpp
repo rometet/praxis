@@ -267,8 +267,8 @@ int main(){
     {
         auto custom=worldPeerStepPolicy(true,false);
         auto settings=worldPeerStepPolicy(true,true);
-        check(custom.engineManagesGeometry&&!custom.waitForSettingsSelection,
-            "custom Apply/Reload cannot wait for a Settings user selection event");
+        check(!custom.engineManagesGeometry&&!custom.waitForSettingsSelection,
+            "direct in-world Apply/Reload must rebuild chunk meshes before peer resume");
         check(settings.engineManagesGeometry&&settings.waitForSettingsSelection,
             "native Settings retains selection wait independently of engine geometry");
         for(bool reload:{false,true}){
@@ -289,12 +289,27 @@ int main(){
             f.tx.startResult(f.tx.attempt,true);f.tx.finish(f.tx.attempt,true);
             check(f.tx.settleExecuted(owner(),true,true,f.tx.targetGlobal,17),
                 "native finish and current-frame receipt settle custom Apply/Reload");
-            check(!f.tx.geometryRequested&&f.peers.step(f.tx,18,custom)==WorldPeerAction::None,
-                "custom route uses original engine geometry without a second mod rebuild");
+            check(!shouldRequestWorldChunkGeometry(WorldSwitchPhase::Reloading,
+                    false,true,true)
+                &&!shouldRequestWorldChunkGeometry(f.tx.phase,false,true,false)
+                &&shouldRequestWorldChunkGeometry(f.tx.phase,false,true,true),
+                "native texture and renderer receipts must precede chunk invalidation");
+            check(f.peers.step(f.tx,18,custom)==WorldPeerAction::None
+                &&f.tx.phase==WorldSwitchPhase::Reacquiring,
+                "neither peer may resume while existing chunk geometry is still stale");
+            unsigned refreshed{};
+            check(requestWorldGeometryRebuild(f.tx,owner(),true,[&]{++refreshed;})
+                &&f.tx.geometryRequested&&refreshed==1,
+                "native completion requests the original one-shot chunk rebuild");
+            check(!shouldRequestWorldChunkGeometry(f.tx.phase,true,true,true)
+                &&requestWorldGeometryRebuild(f.tx,owner(),true,[&]{++refreshed;})
+                &&refreshed==1,"one completed transaction never invalidates chunks twice");
+            check(f.peers.step(f.tx,18,custom)==WorldPeerAction::None,
+                "NativeSettled is sent only after the mesh rebuild request");
             f.service(true);
             check(f.peers.step(f.tx,19,custom)==WorldPeerAction::None
                 &&f.tx.phase==WorldSwitchPhase::Complete&&!f.peers.mask,
-                "both mod peers resume after custom native engine reload");
+                "both mod peers resume after textures and current chunks were refreshed");
             f.clean();
         }
         // A positive Resume result with a false/foreign reply must not open
@@ -310,6 +325,8 @@ int main(){
             f.tx.startResult(f.tx.attempt,true);f.tx.finish(f.tx.attempt,true);
             check(f.tx.settleExecuted(owner(),true,true,f.tx.targetGlobal,17),
                 "malformed Resume probe settled only an owned native completion");
+            check(requestWorldGeometryRebuild(f.tx,owner(),true,[]{}),
+                "malformed Resume fixture still requires completed chunk invalidation");
             f.peers.step(f.tx,18,custom);f.service(true);
             resumeCorruption=bad;f.peers.step(f.tx,19,custom);
             check(f.tx.phase==WorldSwitchPhase::Recovery&&f.peers.mask==3
@@ -378,7 +395,7 @@ int main(){
         check(allowed.region(29,true,16,48,32)&&!allowed.region(29,false,17,48,32),
             "region diagnostics preserve the original bounds boolean and report explicit byte units");
         allowed.finish(false,true);auto allowedLines=drain(allowedQueue);
-        check(allowedLines[0].find("sdk=26.51.5 approved_sha256=f82dc967")!=std::string::npos
+        check(allowedLines[0].find("sdk=26.60.5 approved_sha256=d52fc92c")!=std::string::npos
             &&allowedLines[0].find("actual=match")!=std::string::npos&&allowedLines[1].find("actual=unverified")!=std::string::npos,
             "stage1 emitted identity joins its approved fixed hash and SDK with the actual existing guard result");
         check(allowedLines[3].find("actual_protection=64 expected_allowed=32,64,128")!=std::string::npos,

@@ -2,6 +2,9 @@
 #include "render/NativeDurabilityHud.h"
 #include "render/PlayerHud.h"
 #include <Windows.h>
+#ifdef small
+#undef small
+#endif
 #include <imgui.h>
 #include "core/Settings.h"
 #include "core/ShulkerPreviewPolicy.h"
@@ -338,7 +341,7 @@ LL_TYPE_INSTANCE_HOOK(
         if(traces<12) {
             ++traces;
             char message[448]{};
-            std::snprintf(message,sizeof(message),"Preview nested native item: block=%.80s type=%d position=(%.3f,%.3f) light=%.3f alpha=%.3f scale=%.3f frame=%d z=%d requestedAnimation=%d effectiveAnimation=%d pickupPop=%.5f",item.getTypeName().c_str(),int(itemRenderChunkType),x,y,lightMultiplier,alphaMultiplier,scale,frame,zOrder,allowAnimation,effectiveAnimation,item.getPickupPopPercentage());
+            std::snprintf(message,sizeof(message),"Preview nested native item: block=%.80s type=%d position=(%.3f,%.3f) light=%.3f alpha=%.3f scale=%.3f frame=%d z=%d requestedAnimation=%d effectiveAnimation=%d",item.getTypeName().c_str(),int(itemRenderChunkType),x,y,lightMultiplier,alphaMultiplier,scale,frame,zOrder,allowAnimation,effectiveAnimation);
             logGuiInfo(message);
         }
     }
@@ -568,7 +571,9 @@ void drawText(MinecraftUIRenderContext& ui,float x,float y,float width,std::stri
               mce::Color const& color,float size=10.0f) {
     TextMeasureData const measure{size,0.0f,false,false,false,ui::TextAlignment::Left};
     CaretMeasureData const caret{0,false};
-    ui.drawText(ui.mDebugTextFontHandle->getFont(),
+    auto const& font = ui.mDebugTextFontHandle->mDefaultFont.get();
+    if (!font) return;
+    ui.drawText(*font,
                 rect(x,y,width,std::max(16.0f,size+4.0f)),std::move(value),
                 color,1.0f,ui::TextAlignment::Left,measure,caret);
 }
@@ -1156,7 +1161,9 @@ LL_TYPE_INSTANCE_HOOK(
                 &&now>=value.observed&&now-value.observed<=220) {
                 auto logical=client.getGuiData()->mScreenSizeData.get().clientUIScreenSize.get();
                 auto const cursor=mCursorPosition.get()+mOffset.get();auto const box=mBoxDimensions.get();
-                auto& font=renderContext.mDebugTextFontHandle->getFont();float rowHeight=font.getWrapHeight();
+                auto const& fontPtr=renderContext.mDebugTextFontHandle->mDefaultFont.get();
+                if(!fontPtr)return;
+                auto& font=*fontPtr;float rowHeight=font.getWrapHeight();
                 if(std::isfinite(logical.x)&&std::isfinite(logical.y)&&logical.x>16&&logical.y>16
                     &&std::isfinite(cursor.x)&&std::isfinite(cursor.y)&&std::isfinite(box.y)
                     &&std::isfinite(rowHeight)&&rowHeight>0) {

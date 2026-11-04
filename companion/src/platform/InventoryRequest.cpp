@@ -77,6 +77,13 @@ RequestResult requestResult(std::uint64_t token) {
 }
 bool requestPathBusy() noexcept {
     std::lock_guard lock(mutex);
+    // A cancelled operation can finish asynchronously after its owner has
+    // left the HUD. Reap only a retired, fully settled request here as well
+    // as in beginRequest(), otherwise FlexiblePlacement can stay blocked
+    // indefinitely until another inventory request is attempted.
+    if(retired&&barrier.settled(worldGeneration.load())){
+        barrier.reset();before.clear();owner=0;retired=false;
+    }
     return barrier.busy() || owner != 0;
 }
 void releaseRequest(std::uint64_t token) noexcept {

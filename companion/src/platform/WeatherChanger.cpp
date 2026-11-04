@@ -22,6 +22,9 @@
 #include "mc/client/renderer/game/LevelRenderer.h"
 #include "mc/client/renderer/game/LevelRendererCamera.h"
 #include "mc/client/renderer/game/LevelRendererPlayer.h"
+#include "mc/deps/minecraft_renderer/objects/ActorShadowRenderObject.h"
+#include "mc/deps/minecraft_renderer/objects/ChunkRenderData.h"
+#include "mc/deps/minecraft_renderer/objects/ChunkLayerRenderObject.h"
 #include "mc/deps/minecraft_renderer/objects/SkyRenderObject.h"
 #include "mc/deps/minecraft_renderer/objects/ViewRenderObject.h"
 #include "mc/deps/minecraft_renderer/objects/WeatherRenderObject.h"
@@ -42,11 +45,14 @@
 
 namespace praxis::companion {
 namespace {
-using WeatherMove = void* (WeatherRenderObject::*)(WeatherRenderObject&&);
-using SkyMove = void* (SkyRenderObject::*)(SkyRenderObject&&);
 using CreateView = ViewRenderObject (LevelRendererPlayer::*)(ScreenContext&, SubClientId);
 ll::memory::FuncPtr sdkViewTarget{};
-CreateView sdkViewContinuation{};
+// Windows x64/MSVC C++ aggregate return ABI: the caller supplies the
+// ViewRenderObject return storage in RCX, then the object this in RDX.
+// The generated 26.60 collection union has a deleted C++ destructor;
+// never construct/destroy a local ViewRenderObject in the adapter.
+using AbiView = ViewRenderObject* (*)(ViewRenderObject*,LevelRendererPlayer*,ScreenContext&,SubClientId);
+AbiView sdkViewContinuation{};
 std::atomic<std::uintptr_t> sdkViewSavedTarget{};
 std::atomic_uint64_t sdkViewEpoch{1};
 std::atomic_bool sdkViewClosed{};
@@ -60,8 +66,6 @@ static_assert(offsetof(NativeSunnyParameters, rainCloudWeight) == 0x2c);
 static_assert(offsetof(NativeSunnyParameters, thunderSkyWeight) == 0x40);
 static_assert(offsetof(NativeSunnyParameters, thunderCloudWeight) == 0x54);
 static_assert(offsetof(NativeSunnyParameters, flashSkyWeight) == 0x68);
-static_assert(std::is_same_v<decltype(&WeatherRenderObject::$ctor), WeatherMove>);
-static_assert(std::is_same_v<decltype(&SkyRenderObject::$ctor), SkyMove>);
 static_assert(std::is_same_v<decltype(&LevelRendererPlayer::createViewRenderObject), CreateView>);
 static_assert(std::is_same_v<decltype(&LevelRendererCamera::doRainUpdate), RainUpdate>);
 static_assert(std::is_same_v<decltype(std::declval<ViewRenderObject&>().mWeatherState.get()), WeatherRenderObject&>);
@@ -406,10 +410,8 @@ bool diagnosticOffPass(WeatherRendererEligibility const& e,
 }
 
 struct VisualWeatherViewHook : LevelRendererPlayer {
-    ViewRenderObject detour(ScreenContext& screen,SubClientId clientSubId);
-    ViewRenderObject origin(ScreenContext& screen,SubClientId clientSubId) {
-        return (this->*sdkViewContinuation)(screen,clientSubId);
-    }
+    static ViewRenderObject* detour(ViewRenderObject* out,LevelRendererPlayer* renderer,
+        ScreenContext& screen,SubClientId clientSubId);
     static int hook() {
         static_assert(!ll::memory::virtualDetector<CreateView,&LevelRendererPlayer::createViewRenderObject>());
         if(!sdkViewTarget)sdkViewTarget=ll::memory::resolveIdentifier<CreateView>(&LevelRendererPlayer::createViewRenderObject);
@@ -417,15 +419,17 @@ struct VisualWeatherViewHook : LevelRendererPlayer {
             reinterpret_cast<ll::memory::FuncPtr*>(&sdkViewContinuation),ll::memory::HookPriority::High,ll::memory::SaveNone,true);
     }
 };
-ViewRenderObject VisualWeatherViewHook::detour(ScreenContext& screen,SubClientId clientSubId) {
+ViewRenderObject* VisualWeatherViewHook::detour(ViewRenderObject* out,LevelRendererPlayer* renderer,
+    ScreenContext& screen,SubClientId clientSubId) {
     WeatherNativeLease lease;
-    if (!weatherNativeAdmission.load(std::memory_order_seq_cst)) return origin(screen, clientSubId);
+    if (!weatherNativeAdmission.load(std::memory_order_seq_cst))
+        return sdkViewContinuation(out,renderer,screen,clientSubId);
     WeatherDiagnosticCapture capture(WeatherProducer::View);
     auto const before = capture ? diagnosticState() : WeatherDiagnosticState{};
     weatherChangerDiagnostics.viewCalls.fetch_add(1, std::memory_order_relaxed);
     bool const trialEnabled=weatherResultTrial->accepting();
-    auto const e = weatherRendererEligibility(*this, clientSubId, capture || trialEnabled);
-    unsigned const nativeFrame = e.eligible ? mFrameID : 0;
+    auto const e = weatherRendererEligibility(*renderer, clientSubId, capture || trialEnabled);
+    unsigned const nativeFrame = e.eligible ? renderer->mFrameID : 0;
     auto const requestState=settings();
     auto const requested=requestState->weatherOptions;
     SunnyCapture sunny;
@@ -443,7 +447,10 @@ ViewRenderObject VisualWeatherViewHook::detour(ScreenContext& screen,SubClientId
     count.fetch_add(1, std::memory_order_relaxed);
     if (visualWeatherContext.eligible)
         weatherChangerDiagnostics.viewsInScope.fetch_add(1, std::memory_order_relaxed);
-    auto view = origin(screen, clientSubId);
+    // Native engine constructs the returned aggregate directly in caller-owned
+    // storage. We only borrow that object while this hook is executing.
+    sdkViewContinuation(out,renderer,screen,clientSubId);
+    auto& view = *out;
     bool const trace=trialEnabled && !view.mViewData.get().mIsShadowPass;
     WeatherProducerResult traceResult;
     if(trace) {
@@ -458,17 +465,17 @@ ViewRenderObject VisualWeatherViewHook::detour(ScreenContext& screen,SubClientId
         observation.nativeFog = view.mSkyState.get().mFogLevel != 0.f;
     }
     observation.decision = WeatherDecision::ScopeRejected;
-    bool const ownerVerified = withOwnedWeatherResult(e, [&] { return weatherRendererEligibility(*this, clientSubId); },
+    bool const ownerVerified = withOwnedWeatherResult(e, [&] { return weatherRendererEligibility(*renderer, clientSubId); },
         [] { return worldGeneration.load(std::memory_order_acquire); }, [&](auto const& after) {
             VisualWeatherScope verified(after.eligible, after.hasWeather, after.generation);
-            if(trace && mDimension && mDimension->mWeather.get()) {
-                auto const& weather=*mDimension->mWeather.get();
+            if(trace && renderer->mDimension && renderer->mDimension->mWeather.get()) {
+                auto const& weather=*renderer->mDimension->mWeather.get();
                 traceResult.world={weather.mOldRainLevel,weather.mRainLevel,weather.mOldLightningLevel,weather.mLightningLevel};
                 traceResult.worldValid=true;
             }
             auto revalidate=[&] {
-                    auto const finalOwner=weatherRendererEligibility(*this,clientSubId);
-                    return !screen.isCapturingPanorama && nativeFrame==mFrameID
+                    auto const finalOwner=weatherRendererEligibility(*renderer,clientSubId);
+                    return !screen.isCapturingPanorama && nativeFrame==renderer->mFrameID
                         && settings()->weatherOptions==requested
                         && sameWeatherResultOwner(after,finalOwner,worldGeneration.load(std::memory_order_acquire));
                 };
@@ -495,7 +502,7 @@ ViewRenderObject VisualWeatherViewHook::detour(ScreenContext& screen,SubClientId
         observation.mutationVerified = observation.applied && !observation.returnedDraw && !observation.returnedFog;
         capture.complete(observation);
     }
-    return view;
+    return out;
 }
 
 LL_TYPE_INSTANCE_HOOK(VisualWeatherRainSplashHook, ll::memory::HookPriority::High,
@@ -534,46 +541,12 @@ LL_TYPE_INSTANCE_HOOK(VisualWeatherRainSplashHook, ll::memory::HookPriority::Hig
     return rain;
 }
 
-// Constructors remain observable for the entry-only/toggle regression. They
-// are passthroughs: never change density/alpha or NoRender's saved native state.
-LL_TYPE_INSTANCE_HOOK(VisualWeatherSnapshotHook, ll::memory::HookPriority::High,
-    WeatherRenderObject, &WeatherRenderObject::$ctor, void*, WeatherRenderObject&& source) {
-    WeatherNativeLease lease;
-    if (!weatherNativeAdmission.load(std::memory_order_seq_cst)) return origin(std::move(source));
-    WeatherDiagnosticCapture capture(WeatherProducer::WeatherMove);
-    if (capture) capture.entry({diagnosticState(), WeatherContextResult::Accepted, WeatherDecision::Observer,
-        visualWeatherContext.eligible, visualWeatherContext.hasWeather, false});
-    weatherChangerDiagnostics.weatherMoveCalls.fetch_add(1, std::memory_order_relaxed);
-    auto* result = origin(std::move(source));
-    if (result == this) {
-        if (visualWeatherContext.eligible)
-            weatherChangerDiagnostics.weatherMovesInScope.fetch_add(1, std::memory_order_relaxed);
-    }
-    if (capture) { WeatherDiagnosticResult r; r.state = diagnosticState(); r.decision = WeatherDecision::Observer; capture.complete(r); }
-    return result;
-}
-
-LL_TYPE_INSTANCE_HOOK(VisualWeatherSkySnapshotHook, ll::memory::HookPriority::Normal,
-    SkyRenderObject, &SkyRenderObject::$ctor, void*, SkyRenderObject&& source) {
-    WeatherNativeLease lease;
-    if (!weatherNativeAdmission.load(std::memory_order_seq_cst)) return origin(std::move(source));
-    WeatherDiagnosticCapture capture(WeatherProducer::SkyMove);
-    if (capture) capture.entry({diagnosticState(), WeatherContextResult::Accepted, WeatherDecision::Observer,
-        visualWeatherContext.eligible, visualWeatherContext.hasWeather, false});
-    weatherChangerDiagnostics.skyMoveCalls.fetch_add(1, std::memory_order_relaxed);
-    auto* result = origin(std::move(source));
-    if (result == this) {
-        if (visualWeatherContext.eligible)
-            weatherChangerDiagnostics.skyMovesInScope.fetch_add(1, std::memory_order_relaxed);
-    }
-    if (capture) { WeatherDiagnosticResult r; r.state = diagnosticState(); r.decision = WeatherDecision::Observer; capture.complete(r); }
-    return result;
-}
-
 struct HookState { int (*install)(); bool active{}; };
 template<class Hook> HookState hookState() { return {[] { return Hook::hook(); }, false}; }
-std::array hooks{hookState<VisualWeatherViewHook>(), hookState<VisualWeatherSnapshotHook>(),
-    hookState<VisualWeatherSkySnapshotHook>(), hookState<VisualWeatherRainSplashHook>()};
+// 26.60 returns real Weather/Sky objects in the owned ViewRenderObject.
+// Former move-constructor hooks were observational passthroughs only;
+// the actual visual WeatherChanger mutation is retained in the view hook.
+std::array hooks{hookState<VisualWeatherViewHook>(), hookState<VisualWeatherRainSplashHook>()};
 std::array sunnyHooks{hookState<SunnyNativeColorProbe>(),hookState<SunnyNativeCloudProbe>(),
     hookState<SunnyNativeFogProbe>(),hookState<SunnyNativeSkyBrightnessProbe>(),
     hookState<SunnyPreRenderProbe>(),hookState<SunnyLightDataHook>(),hookState<SunnyClockObservationHook>()};
@@ -582,7 +555,7 @@ SunnySdkViewBindingRecord sdkViewBindingEvidence() noexcept {
     auto const epoch=sdkViewEpoch.load();
     SunnySdkViewBindingRecord record{sdkViewSavedTarget.load(),reinterpret_cast<std::uintptr_t>(sdkViewTarget),
         reinterpret_cast<std::uintptr_t>(ll::memory::toFuncPtr(&LevelRendererPlayer::createViewRenderObject)),
-        reinterpret_cast<std::uintptr_t>(ll::memory::toFuncPtr(sdkViewContinuation)),epoch,hooks[0].active,sdkViewClosed.load()};
+        reinterpret_cast<std::uintptr_t>(sdkViewContinuation),epoch,hooks[0].active,sdkViewClosed.load()};
     if(epoch!=sdkViewEpoch.load())record.closed=true;
     return record;
 }
@@ -629,7 +602,7 @@ void emitSkySymbolEvidence(ll::mod::NativeMod& mod, std::uint64_t session) {
         && nt.Signature == IMAGE_NT_SIGNATURE && nt.FileHeader.Machine == IMAGE_FILE_MACHINE_AMD64
         && nt.OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC
         && nt.OptionalHeader.SizeOfImage == size;
-    mod.getLogger().info("WeatherSkySymbol session={} mainImageSize={} PEHeaders={} timestamp={} machine={}; SDK=26.51.5 identifiers; no functions called",
+    mod.getLogger().info("WeatherSkySymbol session={} mainImageSize={} PEHeaders={} timestamp={} machine={}; SDK=26.60.5 identifiers; no functions called",
         session, size, headers, headers ? nt.FileHeader.TimeDateStamp : 0, headers ? nt.FileHeader.Machine : 0);
     if (headers && nt.OptionalHeader.NumberOfRvaAndSizes > IMAGE_DIRECTORY_ENTRY_DEBUG) {
         auto const directory = nt.OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_DEBUG];
@@ -668,7 +641,7 @@ void emitDiagnosticPoll(WeatherDiagnosticPoll const& result) noexcept {
         auto mod = ll::mod::NativeMod::current();
         if (!mod) return;
         if (result.started) mod->getLogger().info(
-            "WeatherDiag start session={} maxSeconds=30 maxEvents=4096 hooksMask={} (view=1 weatherMove=2 skyMove=4 rain=8); counters only; precipitationOutputVerified covers rain/Fog or splash output, never sunny correctness; no visual-success claim",
+            "WeatherDiag start session={} maxSeconds=30 maxEvents=4096 hooksMask={} (view=1 rain=2; 26.60 has no weather/sky move ctor hooks); counters only; precipitationOutputVerified covers rain/Fog or splash output, never sunny correctness; no visual-success claim",
             result.started->session, result.started->hookMask);
         if (result.started) emitSkySymbolEvidence(*mod, result.started->session);
         if (!result.finished) return;

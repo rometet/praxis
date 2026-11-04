@@ -1,9 +1,9 @@
 {
-  "name": "PraxisCompanion",
-  "entry": "PraxisCompanion.dll",
-  "version": "0.1.0",
-  "type": "native",
-  "platform": "client",
-  "description": "Standalone Praxis Companion utility mod and GUI for LeviLamina Client 26.51.5",
-  "author": "rometet"
+    "name":  "PraxisCompanion",
+    "entry":  "PraxisCompanion.dll",
+    "version":  "0.1.5-rc.1",
+    "type":  "native",
+    "platform":  "client",
+    "description":  "Praxis Companion 26.60.05 - original Minecraft Settings RP entry, hot reload pending",
+    "author":  "rometet"
 }

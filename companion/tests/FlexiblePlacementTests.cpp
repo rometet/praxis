@@ -1,4 +1,5 @@
 #include "core/FlexiblePlacementPolicy.h"
+#include "core/FlexibleOverlayCameraGeometry.h"
 #include "core/RuntimePolicy.h"
 #include <cmath>
 #include <iostream>
@@ -14,6 +15,60 @@ static void require(bool value, const char* message) {
 
 int main() {
     try {
+        // A float absolute-coordinate vertex at 30M cannot retain even 1
+        // block, let alone a 0.004 surface offset. The new mesh always uses
+        // a shared integer anchor and only float *local* coordinates.
+        constexpr std::array<FlexibleCell,7> overlayOrigins{{
+            {0,64,0}, {16384,64,-16384},
+            {1'000'000,100,1'000'000}, {-1'000'000,120,-1'000'000},
+            {16'777'216,-64,-16'777'216},
+            {29'999'995,320,-29'999'995},
+            {-29'999'995,-64,29'999'995}
+        }};
+        for(auto const anchor:overlayOrigins) {
+            for(unsigned face=0;face<6;++face) {
+                auto const kind=static_cast<FlexibleFace>(face);
+                auto const local=flexibleOverlayFacePoint(
+                    anchor,anchor,kind,0.25f,0.75f);
+                auto const zero=flexibleOverlayFacePoint(
+                    {0,0,0},{0,0,0},kind,0.25f,0.75f);
+                require(local.x==zero.x && local.y==zero.y && local.z==zero.z,
+                    "all six face grid positions invariant at distant world coordinates");
+                auto const end=flexibleOverlayFacePoint(
+                    anchor,anchor,kind,0.75f,0.75f);
+                auto const zeroEnd=flexibleOverlayFacePoint(
+                    {0,0,0},{0,0,0},kind,0.75f,0.75f);
+                require(end.x==zeroEnd.x && end.y==zeroEnd.y && end.z==zeroEnd.z,
+                    "quarter-block grid remains precise at distant coordinates");
+                require(std::abs(local.x)<2.f && std::abs(local.y)<2.f
+                    && std::abs(local.z)<2.f,
+                    "mesh vertex is local and small regardless of absolute X/Z");
+            }
+            auto const corners=flexibleOverlayCubeCorners(anchor,anchor);
+            require(corners[0].x==0.f && corners[0].y==0.f && corners[0].z==0.f
+                && corners[6].x==1.f && corners[6].y==1.f && corners[6].z==1.f,
+                "cube corner edges are exactly 1 block at large coordinates");
+            auto const neighbor=FlexibleCell{anchor.x-2,anchor.y+1,anchor.z+3};
+            auto const distantCorners=flexibleOverlayCubeCorners(neighbor,anchor);
+            require(distantCorners[0].x==-2.f && distantCorners[0].y==1.f
+                && distantCorners[0].z==3.f && distantCorners[6].x==-1.f
+                && distantCorners[6].y==2.f && distantCorners[6].z==4.f,
+                "destination cube preserves offset against original support");
+            auto const offset=flexibleOverlayCameraTranslation(anchor,
+                static_cast<double>(anchor.x)+0.375,
+                static_cast<double>(anchor.y)+1.25,
+                static_cast<double>(anchor.z)-0.625);
+            require(std::abs(offset.x+0.375f)<0.00001f
+                && std::abs(offset.y+1.25f)<0.00001f
+                && std::abs(offset.z-0.625f)<0.00001f,
+                "camera fractional offset subtracted before float conversion");
+            require(validFlexibleOverlayCameraTranslation(offset),
+                "close camera relative transform should be renderable");
+            auto const beyond=flexibleOverlayCameraTranslation(anchor,
+                static_cast<double>(anchor.x)+2048.,anchor.y,anchor.z);
+            require(!validFlexibleOverlayCameraTranslation(beyond),
+                "invalid far-away camera is rejected rather than drawn incorrectly");
+        }
         FlexibleCell const support{-12345, -64, 9876};
         std::array<FlexibleUV, 5> const regions{{
             {0.50f, 0.50f}, {0.10f, 0.50f}, {0.90f, 0.50f}, {0.50f, 0.90f}, {0.50f, 0.10f}

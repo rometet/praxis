@@ -48,4 +48,4 @@ Only material cleared for redistribution and required for the public source/buil
 
 ## 6. Current state
 
-The first public release line targets Minecraft Bedrock `1.26.51.01` with LeviLamina Client `26.51.5`. Release `v0.1.0` is published from an immutable public source tag and matching binary metadata.
+The 26.51 release series remains available at `v0.1.4-rc.1`. The new experimental 26.60.05 client preview is `v0.1.5-rc.1`, built from an audited clean release snapshot with source tag, commit SHA, SHA-256 and license notices. In-world resource-pack hot-reload is explicitly nonworking in this preview.

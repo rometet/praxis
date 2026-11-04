@@ -1,4 +1,12 @@
+#include "resourcepacks/NativeVirtualSlot2660.h"
 // Private implementation included inside WorldPackSwitch's owner namespace.
+// 26.60 does not export the private _areAnyPackImportsPending helper.
+// The settings controller owns the async work group which performs its
+// pending imports; a nonempty group is a conservative native readiness gate.
+bool nativeSettingsImportsPending(GeneralSettingsScreenController const& general) {
+    auto const& tasks=general.mTaskGroup.get();
+    return tasks && !tasks->isEmpty();
+}
 WorldPackOwner settingsOwner(MinecraftScreenModel& model,std::shared_ptr<IClientInstance>* retained=nullptr) {
     auto* game=observedGame.load();
     auto world=worldGeneration.load();auto thread=GetCurrentThreadId();
@@ -43,7 +51,7 @@ bool beginSettings(GeneralSettingsScreenController* controller,MainMenuScreenMod
         if(!bootstrap.ownerThread(GetCurrentThreadId(),ownerThread.load())
             ||!bootstrap.flag(2,installed.load())
             ||!bootstrap.flag(3,resourcePackImageVerified())
-            ||!bootstrap.flag(4,completionHooksReady.load())
+            ||!bootstrap.flag(4,completionHooksReady.load()&&legacySettingsHooksReady.load())
             ||!bootstrap.flag(5,lost.load(),false)
             ||!bootstrap.zero(6,callbacks.load())
             ||!bootstrap.zero(7,nativeTasks.load())
@@ -57,11 +65,11 @@ bool beginSettings(GeneralSettingsScreenController* controller,MainMenuScreenMod
         auto level=ids(manager.mLevelStack.get());
         bool clone=authorizedR24Clone(client);
         bool scopedClone=vanillaScopedCloneGrant(
-            clone,client->isInMultiplayerGame(),level.size()==2,
+            clone,!isVerifiedIntegratedWorld(*client),level.size()==2,
             level.size(),bool(manager.mUseGlobalPackStack),
             bool(manager.mInitializing),bool(manager.mPendingRestack));
         bool include=nativeSettingsMayIncludeGlobal(
-            manager.mUseGlobalPackStack,client->isInMultiplayerGame(),
+            manager.mUseGlobalPackStack,!isVerifiedIntegratedWorld(*client),
             level.empty(),scopedClone);
         if(!include)return reject(4);
         // Do not grant the native editor a live-in-world compatibility
@@ -80,6 +88,69 @@ bool beginSettings(GeneralSettingsScreenController* controller,MainMenuScreenMod
         if(binding.owner){op->group.peers[1]=binding.entry;op->group.count=2;}
         active.store(op);initialization.operation=op;reason=0;return true;
     }catch(...){return reject(7);}
+}
+// Narrow, owner-thread 26.60 Settings UI query for the real integrated
+// singleplayer Global Resources tab. No synthetic Settings controller, fake
+// runtime pack or alternate user interface. The original preGame verdict is
+// extended ONLY while the native Settings UI itself owns the active tab.
+// Reacquire every pointer from the engine-owned CURRENT top scene on each call.
+bool verifiedNativeGlobalPage(IClientInstance* client,bool requireEnabledFlags) noexcept {
+    // The 26.60 MinecraftGame::isInGame() getter can call the client's
+    // virtual isPreGame(). This very function is queried from that hook:
+    // isPreGame -> native editor check -> isInGame -> isPreGame was the
+    // verified C00000FD infinite recursion in both 14:08 minidumps.
+    // Accessors below may also indirectly query isPreGame; never evaluate
+    // this UI grant recursively. The inner query uses the game's original
+    // isPreGame verdict while the outer query finishes.
+    static thread_local bool inNativeGlobalProbe{};
+    if(inNativeGlobalProbe)return false;
+    inNativeGlobalProbe=true;
+    struct ResetProbe {
+        bool& active;
+        ~ResetProbe() noexcept {active=false;}
+    } reset{inNativeGlobalProbe};
+    try {
+        if(!client||GetCurrentThreadId()!=ownerThread.load()||!runtimeReady.load()
+           ||observedClient.load()!=address(client)||!isVerifiedIntegratedWorld(*client)
+           ||!observedGame.load()
+           ||!worldGeneration.load()||observedWorld.load()!=worldGeneration.load())
+            return false;
+        auto scene=client->getCurrentSceneStack()->getTopSceneShared();
+        if(!scene||scene->getSceneType()!=ui::SceneType::SettingsScene
+           ||scene->getRawScreenName().find("settings")==std::string::npos)
+            return false;
+        auto* ui=static_cast<UIScene*>(scene.get());
+        auto* view=ui->mScreenView.get();
+        auto* controller=view?view->mController.get():nullptr;
+        if(!controller||controller->getSceneType()!=ui::SceneType::SettingsScene
+           ||controller->getSceneId()!=scene->mSceneId)return false;
+        auto& root=*static_cast<SettingsScreenController*>(controller);
+        if(root.mSettingsMode!=SettingsScreenMode::Settings
+           ||root.mCurrentTab!=SettingsTabIndex::GlobalResourcesTab
+           ||root.mLegacySyncOnly||!root.mMainMenuScreenModel
+           ||!root.mGeneralSettingsScreenController)return false;
+        auto& general=*root.mGeneralSettingsScreenController;
+        if(!general.mResourceContentSource)return false;
+        auto modelClient=nativeSettingsClient(*root.mMainMenuScreenModel,
+            *observedGame.load(),observedClient.load());
+        if(modelClient.get()!=client)return false;
+        auto& manager=root.mMainMenuScreenModel->getResourcePackManager();
+        if(!manager.mUseGlobalPackStack||manager.mInitializing
+           ||manager.mPendingRestack||!ids(manager.mLevelStack.get()).empty())
+            return false;
+        if(requireEnabledFlags && (!root.mIsGlobalSettingsScreen
+           ||!root.mReloadTexturePacksOnExit||!general.mIsGlobalSettings
+           ||!general.mReloadTexturePacksOnExit))return false;
+        return true;
+    }catch(...) {return false;}
+}
+bool verifiedNativeGlobalPagePreGame(bool original,IClientInstance* client) noexcept {
+    if(original)return true;
+    bool granted=verifiedNativeGlobalPage(client,true);
+    static std::atomic_bool logged{};
+    if(granted&&!logged.exchange(true))
+        packDiagnostic("RESOURCEPACK_WORLD event=vanilla_global_pregame_granted exact_native_owner=1");
+    return granted;
 }
 // Hold the native shared controller while reading it. Never persist or inspect
 // a raw Settings pointer after its owning scene was deleted.
@@ -146,7 +217,7 @@ bool r29ValidateNativeSelection(
     if(changed.mPackId->mPackType!=PackType::Resources
         && changed.mPackId->mPackType!=PackType::Invalid)
         return false;
-    auto owned=repository.getResourcePackSatisfiesPackId(changed.mPackId.get(),true);
+    auto owned=repository.getResourcePackSatisfiesPackId(changed.mPackId.get(),true,ResourcePackSelectionPolicy::Default);
     if(!owned)return false;
     bool matchesSource=false;
     auto user=repository.getPacksByResourceLocation(PackOrigin::User);
@@ -247,7 +318,7 @@ bool settingsExitCurrent(Operation const& op,WorldPackOwner const& current) noex
         if(!general||address(general.get())!=op.settingsContext.controller
             ||address(static_cast<PackManagerContentSourceImpl*>(general->mResourceContentSource))!=op.pendingSource
             ||!general->mIsGlobalSettings||!general->mReloadTexturePacksOnExit
-            ||general->_areAnyPackImportsPending()
+            ||nativeSettingsImportsPending(*general)
             ||root.mMainMenuScreenModel.get()!=model.get()
             ||root.mCurrentTab!=op.pendingTab
             ||root.mSettingsMode!=SettingsScreenMode::Settings
@@ -262,8 +333,9 @@ bool settingsExitCurrent(Operation const& op,WorldPackOwner const& current) noex
             ||!otherStacks(op,model->getResourcePackManager()))return false;
         std::vector<PackInstanceId> selected;
         auto* game=observedGame.load();if(!game)return false;
-        general->mResourceContentSource->getSortedSelectedContent(selected,game->getEntitlementManager());
-        return keys(selected)==op.pendingSelection;
+        auto observed=nativeSelectedGlobalPacks(*general->mResourceContentSource,op.oldIds);
+        if(!observed)return false;
+        return keys(*observed)==op.pendingSelection;
     }catch(...){return false;}
 }
 void replaySettingsExit(std::shared_ptr<Operation> const& op) noexcept {
@@ -291,7 +363,7 @@ void replaySettingsExit(std::shared_ptr<Operation> const& op) noexcept {
     bool canExit=false;
     try{canExit=liveRoot&&liveRoot->canExit()
         &&static_cast<SettingsScreenController*>(liveRoot.get())->mGeneralSettingsScreenController
-        &&!static_cast<SettingsScreenController*>(liveRoot.get())->mGeneralSettingsScreenController->_areAnyPackImportsPending();}
+        &&!nativeSettingsImportsPending(*static_cast<SettingsScreenController*>(liveRoot.get())->mGeneralSettingsScreenController);}
     catch(...){canExit=false;}
     {
         std::lock_guard lock(op->mutex);
@@ -364,7 +436,18 @@ LL_TYPE_INSTANCE_HOOK(WorldSettingsExitDispatcherHook,ll::memory::HookPriority::
                 view,unsigned(event.type),true,true,false,false,false,false,0);}
         if(nativeSettingsExitRoute(true,true,ownerCurrent,false,false)!=NativeSettingsExitRoute::OriginReplay)
             return ui::ViewRequest::ConsumeEvent;
-        settingsReplayPermit.used=true;return origin(event);
+        // Owner-verified replay: prearm both peers before the actual vanilla
+        // UI event executes its private resource-pack setter and compose path.
+        auto current=active.load();
+        if(!current||current.get()!=permit.operation||
+           !armR26NativePeers(*current,"vanilla_settings_before_replayed_event")){
+            if(current){std::lock_guard lock(current->mutex);current->tx.seal();}
+            return ui::ViewRequest::ConsumeEvent;
+        }
+        settingsReplayPermit.used=true;
+        NativeSettingsEditorPause editing;
+        NativeSettingsPackScope scope(current->settingsContext);
+        return origin(event);
     }
     NativeHookLifetime::Lease lease(lifetime);
     auto op=lease.admitted()?active.load():nullptr;
@@ -393,7 +476,7 @@ LL_TYPE_INSTANCE_HOOK(WorldSettingsExitDispatcherHook,ll::memory::HookPriority::
     std::shared_ptr<MainMenuScreenModel> model=currentRoot.mMainMenuScreenModel;
     view.rootReload=currentRoot.mReloadTexturePacksOnExit;view.generalPresent=bool(general);
     bool predicateException{};
-    try{view.canExit=currentRoot.canExit();view.importsIdle=general&&!general->_areAnyPackImportsPending();}
+    try{view.canExit=currentRoot.canExit();view.importsIdle=general&&!nativeSettingsImportsPending(*general);}
     catch(...){predicateException=true;}
     view.eventAlive=!(event.data->button->properties&&event.lifetimeCheck.expired());
     view.modelPresent=bool(model);view.sameGeneral=general&&address(general.get())==op->settingsContext.controller;
@@ -417,7 +500,9 @@ LL_TYPE_INSTANCE_HOOK(WorldSettingsExitDispatcherHook,ll::memory::HookPriority::
         std::vector<std::string> target;
         std::vector<PackInstanceId> selected;
         if(decision.route==NativeSettingsExitRoute::Inspect&&!predicateException){
-            general->mResourceContentSource->getSortedSelectedContent(selected,observedGame.load()->getEntitlementManager());
+            auto observed=nativeSelectedGlobalPacks(*general->mResourceContentSource,op->oldIds);
+            if(!observed)throw std::runtime_error("native selected resource-pack order cannot be verified");
+            selected=std::move(*observed);
             target=keys(selected);selectedKnown=true;selectedCount=target.size();view.selectionUnchanged=target==op->editorInitialGlobal;
             decision=nativeSettingsRootExit(view);
         }
@@ -456,87 +541,162 @@ LL_TYPE_INSTANCE_HOOK(WorldSettingsExitDispatcherHook,ll::memory::HookPriority::
     }catch(...){if(!lock.owns_lock())throw;diagnostic(NativeSettingsRootExitReason::Exception,true,rootGlobal,globalTab,selectedKnown,selectedCount);
         stale=takePendingSettingsExit(*op);op->tx.cancel();return ui::ViewRequest::ConsumeEvent;}
 }
-LL_TYPE_INSTANCE_HOOK(WorldSettingsRootInitHook,ll::memory::HookPriority::Normal,SettingsScreenController,
-    &SettingsScreenController::_init,void){
-    NativeHookLifetime::Lease lease(lifetime);WorldSettingsRootInitInvocation initialization;
-    static std::atomic_uint32_t r29RootSeen{};
-    if(lease.admitted() && GetCurrentThreadId()==ownerThread.load()
-        && observedGame.load() && observedGame.load()->isInGame()
-        && r29RootSeen.fetch_add(1)<4)
-        packDiagnostic("RESOURCEPACK_R29 event=vanilla_settings_root_seen settings=%u legacy=%u global=%u reload=%u",
-            unsigned(mSettingsMode==SettingsScreenMode::Settings),
-            unsigned(mLegacySyncOnly),unsigned(mIsGlobalSettingsScreen),
-            unsigned(mReloadTexturePacksOnExit));
-    if(lease.admitted()&&GetCurrentThreadId()==ownerThread.load())try{
-        std::shared_ptr<MainMenuScreenModel> model=mMainMenuScreenModel;
-        if(model&&mSettingsMode==SettingsScreenMode::Settings&&!mLegacySyncOnly){
-            std::shared_ptr<IClientInstance> client;auto owner=settingsOwner(*model,&client);
-            if(owner.usable())initialization={this,std::move(model),std::move(client),owner,{},true};
+// Both callbacks remain 26.60 virtual functions even though their $-named
+// thunks are no longer exported. Resolve the exact vtable entry only from
+// the native settings controllers constructed by the vanilla engine.
+struct WorldSettingsRootOpenedHook : SettingsScreenController {
+    static inline ll::memory::FuncPtr nativeTarget{};
+    static inline void (*nativeOrigin)(SettingsScreenController*){};
+    void origin() { nativeOrigin(this); }
+    static int hook(SettingsScreenController& root) {
+        if (nativeOrigin) return 0;
+        auto slot=native2660::zeroAdjustVirtualSlot(&SettingsScreenController::onOpen);
+        if (!slot) return -11;
+        if (*slot>1024) return -12;
+        auto table=*reinterpret_cast<void* const* const*>(&root);
+        if (!table || !table[*slot]) return -13;
+        nativeTarget=table[*slot];
+        if(ll::memory::hookEx(nativeTarget,ll::memory::toFuncPtr(&WorldSettingsRootOpenedHook::detour),
+            reinterpret_cast<ll::memory::FuncPtr*>(&nativeOrigin),ll::memory::HookPriority::Normal,
+            ll::memory::SaveNone,true)!=0) {
+            nativeTarget=nullptr;
+            return -14;
         }
-    }catch(...){}
-    WorldSettingsRootInitScope scope(std::move(initialization));
-    // Preserve every native _init predicate and its navigation/global result.
-    // Child construction remains scoped to this invocation; no manual _init.
-    NativeSettingsPackScope neutral({});
-    try{origin();}catch(...){auto op=worldSettingsRootInitInvocation.operation;
-        if(op){std::lock_guard lock(op->mutex);op->tx.cancel();}throw;}
-    auto const& current=worldSettingsRootInitInvocation;auto op=current.operation;
-    if(!op)return;
-    NativeSettingsRootReloadView view;bool original=mReloadTexturePacksOnExit;
-    try{
-        std::shared_ptr<GeneralSettingsScreenController> general=mGeneralSettingsScreenController;
-        std::shared_ptr<MainMenuScreenModel> model=mMainMenuScreenModel;
-        std::shared_ptr<IClientInstance> client;auto owner=model?settingsOwner(*model,&client):WorldPackOwner{};
-        view.initializationOwned=current.eligible&&current.root==this&&active.load()==op;
-        view.sameModel=model==current.model;view.sameGeneral=general&&address(general.get())==op->settingsContext.controller;
-        view.ownerCurrent=owner.usable()&&current.owner.same(owner)&&op->editorOwner.same(owner)&&client==current.client;
-        view.settingsMode=mSettingsMode==SettingsScreenMode::Settings&&!mLegacySyncOnly;
-        if(view.ownerCurrent){auto& manager=model->getResourcePackManager();
-            view.globalPolicy=nativeSettingsMayIncludeGlobal(
-                manager.mUseGlobalPackStack,client->isInMultiplayerGame(),
-                ids(manager.mLevelStack.get()).empty(),op->r24AuthorizedClone);}
-        view.childGlobal=general&&general->mIsGlobalSettings;view.childReload=general&&general->mReloadTexturePacksOnExit;
-        view.sourcePresent=general&&general->mResourceContentSource;
-        bool qualified=nativeSettingsRootReload(false,view);
-        if(qualified){mReloadTexturePacksOnExit=nativeSettingsRootReload(original,view);
-            std::lock_guard lock(op->mutex);op->settingsInitRoot=address(this);}
-        else {std::lock_guard lock(op->mutex);op->tx.cancel();}
-        packDiagnostic("RESOURCEPACK_WORLD event=settings_root_init session=%llu qualified=%u original_reload=%u root_reload=%u root_global=%u navigate_menu=%u child_global=%u child_reload=%u same_model=%u same_general=%u owner=%u policy=%u source=%u",
-            diagNumber(op->settingsSession),unsigned(qualified),unsigned(original),unsigned(mReloadTexturePacksOnExit),unsigned(mIsGlobalSettingsScreen),unsigned(mNavigateToMenuOnExit),
-            unsigned(view.childGlobal),unsigned(view.childReload),unsigned(view.sameModel),unsigned(view.sameGeneral),unsigned(view.ownerCurrent),unsigned(view.globalPolicy),unsigned(view.sourcePresent));
-    }catch(...){std::lock_guard lock(op->mutex);op->tx.cancel();
-        packDiagnostic("RESOURCEPACK_WORLD event=settings_root_init session=%llu qualified=0 exception=1",diagNumber(op->settingsSession));}
-}
-LL_TYPE_INSTANCE_HOOK(WorldSettingsCreatedHook,ll::memory::HookPriority::Normal,GeneralSettingsScreenController,
-    &GeneralSettingsScreenController::$ctor,void*,std::shared_ptr<MainMenuScreenModel> model,
-    bool global,bool reloadOnExit,std::string const& initialPack,bool legacySync){
-    NativeHookLifetime::Lease lease(lifetime);
-    unsigned reason=8;bool scoped=lease.admitted()&&model&&beginSettings(this,*model,reason);
-    auto flags=nativeSettingsConstructorFlags(global,reloadOnExit,scoped);
-    auto op=scoped?settingsOperation(address(this)):nullptr;
-    NativeSettingsPackScope construction(op?op->settingsContext:NativeSettingsPackContext{});
-    try{auto* result=origin(std::move(model),flags.global,flags.reloadOnExit,initialPack,legacySync);
-        packDiagnostic("RESOURCEPACK_WORLD event=settings_create session=%llu admitted=%u reason=%u legacy=%u global=%u reload=%u source=%u root_scope=%u",
-            diagNumber(op?op->settingsSession:0),unsigned(scoped),reason,unsigned(legacySync),unsigned(mIsGlobalSettings),unsigned(mReloadTexturePacksOnExit),unsigned(bool(mResourceContentSource)),unsigned(worldSettingsRootInitInvocation.eligible));
-        return result;}
-    catch(...){if(scoped){auto op=settingsOperation(address(this));if(op){std::lock_guard lock(op->mutex);op->tx.cancel();}}throw;}
-}
-LL_TYPE_INSTANCE_HOOK(WorldSettingsRootOpenedHook,ll::memory::HookPriority::Normal,SettingsScreenController,
-    &SettingsScreenController::$onOpen,void){
-    NativeHookLifetime::Lease lease(lifetime);origin();if(!lease.admitted()||GetCurrentThreadId()!=ownerThread.load())return;
-    auto general=mGeneralSettingsScreenController.get();auto op=general?settingsOperation(address(general)):nullptr;
-    if(!op||op->settingsInitRoot!=address(this))return;
-    auto weak=static_cast<MinecraftScreenController*>(this)->weak_from_this();
-    {std::lock_guard lock(op->mutex);op->settingsRoot=weak;op->settingsSceneId=getSceneId();}
-    packDiagnostic("RESOURCEPACK_WORLD event=settings_editor session=%llu bound=%u global_tab=%u fullscreen=%u root_global=%u root_reload=%u",
-        diagNumber(op->settingsSession),unsigned(!weak.expired()),unsigned(mCurrentTab==SettingsTabIndex::GlobalResourcesTab),unsigned(mFullscreen),unsigned(mIsGlobalSettingsScreen),unsigned(mReloadTexturePacksOnExit));
-}
-LL_TYPE_INSTANCE_HOOK(WorldSettingsCanExitHook,ll::memory::HookPriority::Normal,GeneralSettingsScreenController,
-    &GeneralSettingsScreenController::$canExit,bool){
-    NativeHookLifetime::Lease lease(lifetime);bool result=origin();if(!lease.admitted()||!result)return result;
-    auto op=settingsOperation(address(this));if(!op)return result;
-    std::lock_guard lock(op->mutex);
-    return op->tx.phase!=WorldSwitchPhase::Pausing&&op->tx.phase!=WorldSwitchPhase::Preparing;
+        return 0;
+    }
+    void detour() {
+        NativeHookLifetime::Lease lease(lifetime);
+        origin();
+        if(!lease.admitted()||GetCurrentThreadId()!=ownerThread.load())return;
+        auto general=mGeneralSettingsScreenController.get();
+        auto op=general?settingsOperation(address(general)):nullptr;
+        if(!op||op->settingsInitRoot!=address(this))return;
+        auto weak=static_cast<MinecraftScreenController*>(this)->weak_from_this();
+        {std::lock_guard lock(op->mutex);op->settingsRoot=weak;op->settingsSceneId=getSceneId();}
+        packDiagnostic("RESOURCEPACK_WORLD event=settings_editor session=%llu bound=%u global_tab=%u fullscreen=%u root_global=%u root_reload=%u",
+            diagNumber(op->settingsSession),unsigned(!weak.expired()),unsigned(mCurrentTab==SettingsTabIndex::GlobalResourcesTab),
+            unsigned(mFullscreen),unsigned(mIsGlobalSettingsScreen),unsigned(mReloadTexturePacksOnExit));
+    }
+};
+struct WorldSettingsCanExitHook : GeneralSettingsScreenController {
+    static inline ll::memory::FuncPtr nativeTarget{};
+    static inline bool (*nativeOrigin)(GeneralSettingsScreenController*){};
+    bool origin() { return nativeOrigin(this); }
+    static int hook(GeneralSettingsScreenController& general) {
+        if (nativeOrigin) return 0;
+        auto slot=native2660::zeroAdjustVirtualSlot(&GeneralSettingsScreenController::canExit);
+        if (!slot) return -11;
+        if (*slot>1024) return -12;
+        auto table=*reinterpret_cast<void* const* const*>(&general);
+        if (!table || !table[*slot]) return -13;
+        nativeTarget=table[*slot];
+        if(ll::memory::hookEx(nativeTarget,ll::memory::toFuncPtr(&WorldSettingsCanExitHook::detour),
+            reinterpret_cast<ll::memory::FuncPtr*>(&nativeOrigin),ll::memory::HookPriority::Normal,
+            ll::memory::SaveNone,true)!=0) {
+            nativeTarget=nullptr;
+            return -14;
+        }
+        return 0;
+    }
+    bool detour() {
+        NativeHookLifetime::Lease lease(lifetime);
+        bool result=origin();
+        if(!lease.admitted()||!result)return result;
+        auto op=settingsOperation(address(this));
+        if(!op)return result;
+        std::lock_guard lock(op->mutex);
+        return op->tx.phase!=WorldSwitchPhase::Pausing&&op->tx.phase!=WorldSwitchPhase::Preparing;
+    }
+};
+// 26.60 does not export the constructor or private _init thunks used by
+// 26.51. Inspect a REAL Settings scene/controller from the native stack
+// instead of constructing a replacement UI or replaying private _init.
+// Never adopt a scene whose preconstructed native content source does not
+// show exactly the captured original Global pack identities.
+bool observeNativeSettingsScene(AbstractScene& scene,SettingsScreenController& root) noexcept {
+    if(!installed.load()||GetCurrentThreadId()!=ownerThread.load()
+       ||root.mSettingsMode!=SettingsScreenMode::Settings
+       ||root.mLegacySyncOnly || !root.mMainMenuScreenModel
+       ||!root.mGeneralSettingsScreenController
+       ||root.getSceneId()!=scene.mSceneId)
+        return false;
+    auto general=root.mGeneralSettingsScreenController;
+    if(!general->mResourceContentSource)return false;
+    auto previous=active.load();
+    if(previous&&previous->nativeSettings
+       &&previous->settingsInitRoot==address(&root))return true;
+    std::shared_ptr<IClientInstance> client;
+    WorldPackOwner owner;
+    try{owner=settingsOwner(*root.mMainMenuScreenModel,&client);}
+    catch(...){return false;}
+    if(!owner.usable()||!client)return false;
+    WorldSettingsRootInitInvocation initialization{
+        &root,root.mMainMenuScreenModel,client,owner,{},true
+    };
+    WorldSettingsRootInitScope initializationScope(std::move(initialization));
+    unsigned reason{};
+    if(!beginSettings(general.get(),*root.mMainMenuScreenModel,reason))
+        return false;
+    auto op=worldSettingsRootInitInvocation.operation;
+    if(!op)return false;
+    bool parentGlobal=root.mIsGlobalSettingsScreen;
+    bool parentReload=root.mReloadTexturePacksOnExit;
+    bool childGlobal=general->mIsGlobalSettings;
+    bool childReload=general->mReloadTexturePacksOnExit;
+    auto cancel=[&](char const* failure) noexcept {
+        root.mIsGlobalSettingsScreen=parentGlobal;
+        root.mReloadTexturePacksOnExit=parentReload;
+        general->mIsGlobalSettings=childGlobal;
+        general->mReloadTexturePacksOnExit=childReload;
+        {std::lock_guard lock(op->mutex);op->tx.cancel();}
+        if(active.load()==op)active.store(previous);
+        packDiagnostic("RESOURCEPACK_WORLD event=settings_scene_observe denied=%s",failure);
+    };
+    try {
+        auto selected=nativeSelectedGlobalPacks(*general->mResourceContentSource,op->oldIds);
+        if(!selected || keys(*selected)!=op->editorInitialGlobal){
+            cancel("source_is_not_native_global_stack");return false;
+        }
+        // The native UI already owns this Resource content source. Alter
+        // only its Global/Reload admission flags, never construct a new
+        // controller, replace its source, or invoke a private initializer.
+        root.mIsGlobalSettingsScreen=true;
+        root.mReloadTexturePacksOnExit=true;
+        general->mIsGlobalSettings=true;
+        general->mReloadTexturePacksOnExit=true;
+        NativeSettingsRootReloadView view{};
+        view.initializationOwned=true;
+        view.sameModel=root.mMainMenuScreenModel==worldSettingsRootInitInvocation.model;
+        view.sameGeneral=address(general.get())==op->settingsContext.controller;
+        view.ownerCurrent=op->editorOwner.same(owner)
+            &&client==op->client&&worldGeneration.load()==owner.world;
+        view.settingsMode=root.mSettingsMode==SettingsScreenMode::Settings
+            &&!root.mLegacySyncOnly;
+        auto& manager=root.mMainMenuScreenModel->getResourcePackManager();
+        view.globalPolicy=nativeSettingsMayIncludeGlobal(
+            manager.mUseGlobalPackStack,!isVerifiedIntegratedWorld(*client),
+            ids(manager.mLevelStack.get()).empty(),op->r24AuthorizedClone);
+        view.childGlobal=general->mIsGlobalSettings;
+        view.childReload=general->mReloadTexturePacksOnExit;
+        view.sourcePresent=bool(general->mResourceContentSource);
+        if(!nativeSettingsRootReload(false,view)){
+            cancel("root_policy");return false;
+        }
+        if(WorldSettingsRootOpenedHook::hook(root)!=0
+            ||WorldSettingsCanExitHook::hook(*general)!=0){
+            cancel("native_virtual_hook");return false;
+        }
+        auto weak=static_cast<MinecraftScreenController*>(&root)->weak_from_this();
+        if(weak.expired()){cancel("controller_not_shared");return false;}
+        {std::lock_guard lock(op->mutex);
+            op->settingsRoot=weak;
+            op->settingsInitRoot=address(&root);
+            op->settingsSceneId=root.getSceneId();
+        }
+        packDiagnostic("RESOURCEPACK_WORLD event=settings_scene_observe bound=1 session=%llu original_global=%u original_reload=%u",
+            diagNumber(op->settingsSession),unsigned(parentGlobal),unsigned(parentReload));
+        return true;
+    }catch(...){cancel("scene_exception");return false;}
 }
 enum class SettingsApplicationStage {StackEnter,StackReturn,StackThrow,GlobalEnter,GlobalReturn,GlobalThrow,
     NavigationEnter,NavigationReturn,NavigationThrow,NavigationDenied,CallbackAdmission,CallbackPrepared,
@@ -548,75 +708,86 @@ void settingsApplicationDiagnostic(std::shared_ptr<Operation> const& op,Settings
     packDiagnostic("RESOURCEPACK_WORLD event=settings_application session=%llu token=%llu attempt=%llu phase=%u stage=%u scoped=%u reason=%u count=%zu navigation=%u",
         diagNumber(op->settingsSession),diagNumber(op->tx.token),diagNumber(op->tx.attempt),unsigned(op->tx.phase),unsigned(stage),unsigned(scoped),reason,count,unsigned(op->nativeNavigation));
 }
-LL_TYPE_INSTANCE_HOOK(WorldSettingsStackHook,ll::memory::HookPriority::Normal,GeneralSettingsScreenController,
-    &GeneralSettingsScreenController::_setResourcePackStack,void){
-    NativeHookLifetime::Lease lease(lifetime);auto op=lease.admitted()?settingsOperation(address(this)):nullptr;
-    auto model=mMainMenuScreenModel.get();
-    bool scoped=false;try{scoped=model&&mIsGlobalSettings&&mReloadTexturePacksOnExit&&mResourceContentSource&&settingsPrepared(op,*model);}catch(...){scoped=false;}
-    settingsApplicationDiagnostic(op,SettingsApplicationStage::StackEnter,scoped);
-    // R29's vanilla global setter runs BEFORE its apply-screen callback.
-    // That mutation can call LHolo's IconPackComposeHook synchronously.
-    // Therefore begin both resource owners here, while they still hold
-    // Prepared receipts, instead of waiting for WorldUpdate/engine_service.
-    // Otherwise LHolo marks Prepared -> Invalidated(error=10) and textures
-    // never reach the GPU despite the vanilla editor showing the pack ON.
-    bool exactVanilla=op&&op->nativeSettings&&op->r24AuthorizedClone;
-    if(exactVanilla){
-        bool armed=scoped&&armR26NativePeers(*op,"vanilla_settings_before_stack");
-        packDiagnostic("RESOURCEPACK_R30 event=vanilla_prearm token=%llu scoped=%u armed=%u before_setter=1",
-            diagNumber(op->tx.token),unsigned(scoped),unsigned(armed));
-        if(!armed){
-            // Never allow an unarmed vanilla setter to mutate an active world:
-            // no forced zero borrower, no fake success or bypass of LHolo.
-            std::lock_guard lock(op->mutex);
-            op->tx.seal();
-            return;
+// 26.60 exposes isPreGame as a virtual method, but not the legacy
+// $isPreGame thunk. Install against the actual ClientInstance vtable.
+struct WorldSettingsClientPreGameHook : ClientInstance {
+    static inline bool (*nativeOrigin)(ClientInstance const*){};
+    static inline ll::memory::FuncPtr nativeTarget{};
+    bool origin() const { return nativeOrigin(this); }
+    static int hook(ClientInstance& client) {
+        if (nativeOrigin) return 0;
+        auto slot=native2660::zeroAdjustVirtualSlot(&ClientInstance::isPreGame);
+        if (!slot) return -11;
+        if (*slot>1024) return -12;
+        auto table=*reinterpret_cast<void* const* const*>(&client);
+        if (!table || !table[*slot]) return -13;
+        nativeTarget=table[*slot];
+        if (ll::memory::hook(nativeTarget,ll::memory::toFuncPtr(&WorldSettingsClientPreGameHook::detour),
+            reinterpret_cast<ll::memory::FuncPtr*>(&nativeOrigin),ll::memory::HookPriority::Normal)!=0) {
+            nativeTarget=nullptr;
+            return -14;
         }
+        return 0;
     }
-    // A denied setter must not borrow the UI editor's permission. Only the
-    // existing owner/Prepared receipt below may admit the normal native apply.
-    NativeSettingsEditorPause editing;
-    NativeSettingsPackScope scope(scoped?op->settingsContext:NativeSettingsPackContext{});
-    try{origin();} // Native source save, selected ordering, entitlement and exit.
-    catch(...){settingsApplicationDiagnostic(op,SettingsApplicationStage::StackThrow,scoped);if(op){std::lock_guard lock(op->mutex);op->tx.seal();}throw;}
-    settingsApplicationDiagnostic(op,SettingsApplicationStage::StackReturn,scoped);
-    // A synchronous native setter may run without a navigate callback. Its
-    // return is not proof that no native work started; quarantine the paused
-    // resources instead of reopening the old epoch.
-    if(op){std::lock_guard lock(op->mutex);if(!op->nativeNavigation&&op->tx.phase==WorldSwitchPhase::AwaitApply)op->tx.seal();}
-}
-LL_TYPE_INSTANCE_HOOK(WorldSettingsClientPreGameHook,ll::memory::HookPriority::Normal,ClientInstance,
-    &ClientInstance::$isPreGame,bool){
+    bool detour() const {
     bool result=origin();NativeHookLifetime::Lease lease(lifetime);
     if(!lease.admitted())return result;
-    auto* client=static_cast<IClientInstance*>(this);
-    return nativeSettingsPreGame(result,address(client),worldGeneration.load())||settingsEditorPreGame(result,client);
-}
-LL_TYPE_INSTANCE_HOOK(WorldSettingsGlobalHook,ll::memory::HookPriority::Normal,GeneralSettingsScreenController,
-    &GeneralSettingsScreenController::_setGlobalStack,void,std::vector<PackInstanceId> const& identities,bool anyVersion,bool saveStack){
-    NativeHookLifetime::Lease lease(lifetime);auto op=lease.admitted()?settingsOperation(address(this)):nullptr;
-    bool scoped=op&&nativeSettingsPackContext.controller==address(this);
-    settingsApplicationDiagnostic(op,SettingsApplicationStage::GlobalEnter,scoped,unsigned(anyVersion)|(unsigned(saveStack)<<1),identities.size());
-    if(op&&nativeSettingsPackContext.controller==address(this)){
-        bool denied=false;
-        {
-            std::lock_guard lock(op->mutex);
-            if(op->r24AuthorizedClone&&!op->r26PeersNativeArmed
-                &&op->tx.phase==WorldSwitchPhase::AwaitApply){
-                denied=true;
-                op->tx.seal();
-            }
-        }
-        if(denied){
-            packDiagnostic("RESOURCEPACK_R30 event=vanilla_unarmed_global_denied token=%llu",
-                diagNumber(op->tx.token));
-            return;
-        }
-        try{std::lock_guard lock(op->mutex);if(op->tx.phase==WorldSwitchPhase::AwaitApply)op->tx.targetGlobal=keys(identities);}
-        catch(...){std::lock_guard lock(op->mutex);op->tx.cancel();}
+    auto* client=static_cast<IClientInstance*>(const_cast<WorldSettingsClientPreGameHook*>(this));
+    return nativeSettingsPreGame(result,address(client),worldGeneration.load())
+        ||settingsEditorPreGame(result,client)||verifiedNativeGlobalPagePreGame(result,client);
     }
-    try{origin(identities,anyVersion,saveStack);}catch(...){settingsApplicationDiagnostic(op,SettingsApplicationStage::GlobalThrow,scoped);throw;}
-    settingsApplicationDiagnostic(op,SettingsApplicationStage::GlobalReturn,scoped,0,identities.size());
+};
+// Both private GeneralSettings global stack hooks are not exported in 26.60.
+// The owner-verified native exit replay arms both peers before the vanilla
+// controller executes any setters. Guard the native stack mutation boundary.
+LL_TYPE_INSTANCE_HOOK(WorldManagerStackHook,ll::memory::HookPriority::Normal,
+    ResourcePackManager,&ResourcePackManager::setStack,bool,
+    std::unique_ptr<ResourcePackStack> stack,ResourcePackStackType type) {
+    NativeHookLifetime::Lease lease(lifetime);
+    auto op=lease.admitted()?active.load():nullptr;
+    if(!op||!op->nativeSettings||type!=ResourcePackStackType::Global
+       ||address(this)!=op->settingsContext.manager)
+        return origin(std::move(stack),type);
+    bool allowed=false;
+    bool exact=false;
+    try {
+        auto permit=settingsReplayPermit;
+        auto context=nativeSettingsPackContext;
+        bool fromReplay=permit.operation==op.get()&&permit.used
+            &&permit.token==op->tx.token
+            &&permit.client==op->client.get()
+            &&permit.model&&permit.owner.same(op->tx.owner);
+        bool fromOwnedApply=context.valid()
+            &&context.controller==op->settingsContext.controller
+            &&context.client==op->settingsContext.client
+            &&context.manager==op->settingsContext.manager
+            &&context.world==op->settingsContext.world;
+        std::lock_guard lock(op->mutex);
+        allowed=op->r24AuthorizedClone && op->r26PeersNativeArmed
+            &&op->tx.busy() && GetCurrentThreadId()==op->editorOwner.thread
+            &&(fromReplay||fromOwnedApply);
+        if(allowed && stack)
+            exact=keys(ids(stack.get()))==op->tx.targetGlobal;
+    }catch(...){allowed=exact=false;}
+    settingsApplicationDiagnostic(op,SettingsApplicationStage::StackEnter,allowed && exact);
+    if(!allowed||!exact) {
+        std::lock_guard lock(op->mutex);
+        op->tx.seal();
+        packDiagnostic("RESOURCEPACK_WORLD event=manager_global_stack_denied admission=%u exact=%u",
+            unsigned(allowed),unsigned(exact));
+        return false;
+    }
+    try {
+        NativeSettingsPackScope scope(op->settingsContext);
+        auto result=origin(std::move(stack),type);
+        settingsApplicationDiagnostic(op,SettingsApplicationStage::StackReturn,true,unsigned(result));
+        if(!result){std::lock_guard lock(op->mutex);op->tx.seal();}
+        return result;
+    }catch(...){
+        settingsApplicationDiagnostic(op,SettingsApplicationStage::StackThrow,true);
+        std::lock_guard lock(op->mutex);op->tx.seal();
+        throw;
+    }
 }
 struct WorldApplicationTickInvocation {
     std::shared_ptr<Operation> operation;
@@ -647,21 +818,147 @@ bool applicationOwnerCurrent(WorldApplicationTickInvocation const& invocation) n
             &&address(&invocation.model->getResourcePackManager())==invocation.operation->settingsContext.manager;
     }catch(...){return false;}
 }
-LL_TYPE_INSTANCE_HOOK(WorldApplyingLoadingHook,ll::memory::HookPriority::Normal,MinecraftScreenModel,
-    &MinecraftScreenModel::isResourceLoadingFinished,bool){
-    NativeHookLifetime::Lease lease(lifetime);bool result=origin();
-    auto invocation=worldApplicationTickInvocation;
-    if(lease.admitted()&&invocation.permit&&applicationOwnerCurrent(invocation)){
-        auto op=invocation.operation;std::lock_guard lock(op->mutex);
-        if(op->tx.phase==WorldSwitchPhase::Reloading&&op->tx.token==invocation.permit.identity.token
-            &&op->tx.attempt==invocation.permit.identity.attempt)
-            op->executed.loadingQueried(invocation.permit,address(this),result);
+// This exact name has no 26.60 prelink entry yet. Resolve from the
+// engine's trusted symbol table only; never hook a fabricated local stub.
+// The full native world UI transaction stays blocked when absent.
+struct WorldApplyingLoadingHook : MinecraftScreenModel {
+    static inline ll::memory::FuncPtr nativeTarget{};
+    static inline bool (*nativeOrigin)(MinecraftScreenModel const*){};
+    static int hook() {
+        if(nativeOrigin)return 0;
+        nativeTarget=reinterpret_cast<ll::memory::FuncPtr>(native2660::resolveLoadingGetter());
+        if(!nativeTarget)return -1;
+        if(ll::memory::hookEx(nativeTarget,
+            ll::memory::toFuncPtr(&WorldApplyingLoadingHook::detour),
+            reinterpret_cast<ll::memory::FuncPtr*>(&nativeOrigin),
+            ll::memory::HookPriority::Normal,ll::memory::SaveNone,true)!=0) {
+            nativeTarget=nullptr;
+            return -1;
+        }
+        return 0;
     }
-    return result;
-}
-LL_TYPE_INSTANCE_HOOK(WorldApplyingTickHook,ll::memory::HookPriority::Normal,ResourcePackApplyingScreenController,
-    &ResourcePackApplyingScreenController::$tick,ui::DirtyFlag){
-    TitleCallbackLease lease(lifetime,callbacks);WorldApplicationTickInvocation invocation;
+    bool detour() const {
+        NativeHookLifetime::Lease lease(lifetime);
+        bool result=nativeOrigin(this);
+        auto invocation=worldApplicationTickInvocation;
+        if(lease.admitted()&&invocation.permit&&applicationOwnerCurrent(invocation)) {
+            auto op=invocation.operation;std::lock_guard lock(op->mutex);
+            if(op->tx.phase==WorldSwitchPhase::Reloading&&op->tx.token==invocation.permit.identity.token
+                &&op->tx.attempt==invocation.permit.identity.attempt)
+                op->executed.loadingQueried(invocation.permit,address(this),result);
+        }
+        return result;
+    }
+};
+// 26.60 no longer exports ResourcePackApplyingScreenController::$tick.
+// This virtual member can be hooked from an engine-owned *actual* applying
+// controller when it is published to its native scene stack. Registering
+// observers does not fabricate a completion receipt.
+struct WorldApplyingTickHook : ResourcePackApplyingScreenController {
+    static inline ll::memory::FuncPtr nativeTarget{};
+    static inline ui::DirtyFlag (*nativeOrigin)(ResourcePackApplyingScreenController*){};
+    static inline std::weak_ptr<IClientInstance> registeredClient{};
+    static inline unsigned char callbackToken{};
+    ui::DirtyFlag origin() { return nativeOrigin(this); }
+    static int hookController(ResourcePackApplyingScreenController& controller) {
+        if(nativeOrigin)return 0;
+        auto slot=native2660::zeroAdjustVirtualSlot(&ResourcePackApplyingScreenController::tick);
+        if(!slot)return -11;
+        if(*slot>1024)return -12;
+        auto table=*reinterpret_cast<void* const* const*>(&controller);
+        if(!table||!table[*slot])return -13;
+        nativeTarget=table[*slot];
+        if(ll::memory::hookEx(nativeTarget,ll::memory::toFuncPtr(&WorldApplyingTickHook::detour),
+            reinterpret_cast<ll::memory::FuncPtr*>(&nativeOrigin),ll::memory::HookPriority::Normal,
+            ll::memory::SaveNone,true)!=0) {
+            nativeTarget=nullptr;
+            return -14;
+        }
+        return 0;
+    }
+    static void inspectScene(AbstractScene& scene) noexcept {
+        if(!installed.load()||GetCurrentThreadId()!=ownerThread.load())return;
+        // The copied SDK's cross-module RTTI currently throws bad_typeid
+        // for live 26.60 scene stack entries. Record the real native
+        // scene category before ANY controller cast. No pack flags,
+        // scene lifetimes or renderer state are modified by this probe.
+        try {
+            // SceneType::SettingsScene is NOT guaranteed for current OreUI
+            // routes. Inspect the first 16 distinct screen pushes, regardless
+            // of their scene category, without reading or logging user data.
+            // In 26.60 the C++ dynamic_cast on cross-module scenes throws
+            // bad_typeid; this probe uses only the native virtual interface.
+            static std::array<unsigned,16> seen{};
+            static unsigned count{};
+            auto id=unsigned(scene.mSceneId);
+            if(count<seen.size() && std::find(seen.begin(),seen.begin()+count,id)==seen.begin()+count) {
+                seen[count++]=id;
+                auto type=unsigned(scene.getSceneType());
+                auto raw=scene.getRawScreenName();
+                auto route=scene.getRoute();
+                packDiagnostic("RESOURCEPACK_WORLD event=native_scene_seen scene=%u type=%u settings_bit=%u oreui_bit=%u name_options=%u name_settings=%u name_packs=%u route_settings=%u",
+                    id,type,unsigned(bool(type&unsigned(ui::SceneType::SettingsScene))),
+                    unsigned(bool(type&unsigned(ui::SceneType::OreUi))),
+                    unsigned(raw.find("options")!=std::string::npos),
+                    unsigned(raw.find("settings")!=std::string::npos),
+                    unsigned(raw.find("pack")!=std::string::npos),
+                    unsigned(route.find("settings")!=std::string::npos));
+            }
+        } catch(...) {packDiagnostic("RESOURCEPACK_WORLD event=native_scene_probe_unavailable");}
+        try {
+            auto* ui=dynamic_cast<UIScene*>(&scene);
+            if(!ui||!ui->mScreenView.get())return;
+            auto controller=ui->mScreenView->mController;
+            if(auto* settings=controller?dynamic_cast<SettingsScreenController*>(controller.get()):nullptr)
+                observeNativeSettingsScene(scene,*settings);
+            auto* applying=controller?dynamic_cast<ResourcePackApplyingScreenController*>(controller.get()):nullptr;
+            if(!applying)return;
+            auto code=hookController(*applying);
+            packDiagnostic("RESOURCEPACK_WORLD event=applying_tick_virtual_bind code=%d scene=%u",
+                code,unsigned(scene.mSceneId));
+            if(code)lost=true;
+        } catch(std::bad_typeid const&) {
+            packDiagnostic("RESOURCEPACK_WORLD event=applying_tick_virtual_no_rtti");
+        } catch(...) {
+            packDiagnostic("RESOURCEPACK_WORLD event=applying_tick_virtual_exception");
+        }
+    }
+    static int hook() {
+        try {
+            auto* game=observedGame.load();
+            auto requested=observedClient.load();
+            if(!game||!requested||GetCurrentThreadId()!=ownerThread.load())return -1;
+            std::shared_ptr<IClientInstance> client;
+            for(auto const& [sub,owned]:game->getClientInstanceMap())
+                if(owned && address(owned.get())==requested) {client=owned;break;}
+            if(!client)return -1;
+            if(auto previous=registeredClient.lock();previous) {
+                if(previous.get()==client.get())return 0;
+                // Another screen-stack owner would make the retained callback
+                // token stale: refuse rather than overwrite its lifecycle.
+                return -1;
+            }
+            auto stack=client->getCurrentSceneStack();
+            stack->registerPrePushSceneCallback(&callbackToken,[](AbstractScene& scene){inspectScene(scene);});
+            stack->registerPushSceneCallback(&callbackToken,
+                [](std::shared_ptr<AbstractScene> scene,std::optional<OreUI::RouteAction>) {
+                    if(scene)inspectScene(*scene);
+                });
+            registeredClient=client;
+            if(auto scene=stack->getTopSceneShared())inspectScene(*scene);
+            return 0;
+        }catch(...){return -1;}
+    }
+    static void unsubscribe() noexcept {
+        if(auto client=registeredClient.lock())try {
+            auto stack=client->getCurrentSceneStack();
+            stack->unregisterPrePushSceneCallback(&callbackToken);
+            stack->unregisterPushSceneCallback(&callbackToken);
+        }catch(...){}
+        registeredClient.reset();
+    }
+    ui::DirtyFlag detour() {
+TitleCallbackLease lease(lifetime,callbacks);WorldApplicationTickInvocation invocation;
     // Copy shared ownership and scene identity before origin. Native tick can
     // leave/destroy its screen; no naked controller access is made afterwards.
     std::shared_ptr<MinecraftScreenController> heldController;
@@ -713,9 +1010,29 @@ LL_TYPE_INSTANCE_HOOK(WorldApplyingTickHook,ll::memory::HookPriority::Normal,Res
         }
     }
     return result;
-}
-LL_TYPE_INSTANCE_HOOK(WorldSettingsApplyHook,ll::memory::HookPriority::Normal,MainMenuScreenModel,
-    &MainMenuScreenModel::navigateToApplyResourcePacksScreen,void,std::function<void(MinecraftScreenModel&)> apply){
+    }
+};
+// Client-native navigation hook also comes from the same exact runtime
+// decorated-name symbol. Do not synthesize a setter or progress callback.
+struct WorldSettingsApplyHook : MainMenuScreenModel {
+    using Apply=std::function<void(MinecraftScreenModel&)>;
+    static inline ll::memory::FuncPtr nativeTarget{};
+    static inline void (*nativeOrigin)(MainMenuScreenModel*,Apply){};
+    static int hook() {
+        if(nativeOrigin)return 0;
+        nativeTarget=reinterpret_cast<ll::memory::FuncPtr>(native2660::resolveTitleNavigate());
+        if(!nativeTarget)return -1;
+        if(ll::memory::hookEx(nativeTarget,
+            ll::memory::toFuncPtr(&WorldSettingsApplyHook::detour),
+            reinterpret_cast<ll::memory::FuncPtr*>(&nativeOrigin),
+            ll::memory::HookPriority::Normal,ll::memory::SaveNone,true)!=0) {
+            nativeTarget=nullptr;
+            return -1;
+        }
+        return 0;
+    }
+    void origin(Apply apply) {nativeOrigin(this,std::move(apply));}
+    void detour(Apply apply) {
     NativeHookLifetime::Lease lease(lifetime);auto context=nativeSettingsPackContext;
     auto op=lease.admitted()&&context.valid()?settingsOperation(context.controller):nullptr;
     // The fallback is observation only: an unscoped vanilla navigation cannot
@@ -813,7 +1130,8 @@ LL_TYPE_INSTANCE_HOOK(WorldSettingsApplyHook,ll::memory::HookPriority::Normal,Ma
     body->original=std::move(apply);
     body.reset();try{origin(std::move(wrapped));}catch(...){settingsApplicationDiagnostic(op,SettingsApplicationStage::NavigationThrow,true);throw;}
     settingsApplicationDiagnostic(op,SettingsApplicationStage::NavigationReturn,true);
-}
+    }
+};
 LL_TYPE_INSTANCE_HOOK(WorldSettingsComposeHook,ll::memory::HookPriority::Normal,ResourcePackManager,
     &ResourcePackManager::composeFullStack,int,ResourcePackStack& output,ResourcePackStack const& global,ResourcePackStack const& level){
     NativeHookLifetime::Lease lease(lifetime);if(!lease.admitted())return origin(output,global,level);

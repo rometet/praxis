@@ -14,6 +14,15 @@
 
 namespace praxis::companion {
 RuntimeConfig testConfig;
+// The GUI test links policy/UI only; native FastBlockPlacement hooks are
+// deliberately not registered or linked into this synthetic ImGui harness.
+bool fastBlockPlacementRemoteTrial() noexcept {return false;}
+void setFastBlockPlacementRemoteTrial(bool) noexcept {}
+bool fastBlockPlacementRemoteTrialTripped() noexcept {return false;}
+bool fastBlockPlacementWireProbe() noexcept {return false;}
+void setFastBlockPlacementWireProbe(bool) noexcept {}
+bool fastBlockPlacementWireProbeFailed() noexcept {return false;}
+bool fastBlockPlacementWireProbeInstalled() noexcept {return false;}
 char const* handRestockStatus() noexcept {return "未実行";}
 unsigned mapCalls{}, infoCalls{}, previewCalls{}, cameraStatusCalls{}, checks{}, frames{};
 std::uint32_t lastBindingEdits{};
@@ -797,8 +806,8 @@ int main() {
               "new aliases do not change unknown stable module names");
         check(cards[7].feature==Feature::TimeChanger&&cards[8].feature==Feature::WeatherChanger&&cards[9].feature==Feature::Hitbox,
               "TimeChanger/Weather favorite cards retained; Hitbox appends at nine");
-        check(cards.size()==20&&cards[15].feature==Feature::Freelook&&cards[16].feature==Feature::FreeCamera&&cards[17].feature==Feature::AntiEffect&&cards[18].feature==Feature::OffhandSwap&&cards[19].feature==Feature::FlexibleBlockPlacement,
-              "FlexibleBlockPlacement appends without reordering existing cards");
+        check(cards.size()==23&&cards[15].feature==Feature::Freelook&&cards[16].feature==Feature::FreeCamera&&cards[17].feature==Feature::AntiEffect&&cards[18].feature==Feature::OffhandSwap&&cards[19].feature==Feature::FastRightClick&&cards[20].feature==Feature::FastLeftClick&&cards[21].feature==Feature::AccurateBlockPlacement&&cards[22].feature==Feature::FlexibleBlockPlacement,
+              "four placement/click modules append in order without reordering the first 19 cards");
         for(auto name:{"NoRender","TimeChanger","WeatherChanger"})
             check(std::string_view(featureDisplayName(name))==name,"requested English feature names retained");
         for(unsigned i=0;i<kRenderPassCount;++i)

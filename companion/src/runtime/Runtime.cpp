@@ -96,6 +96,9 @@ bool toggleFeatureRequest(Feature feature) {
     case Feature::InventoryHUD: value = &config.inventoryHud; break;
     case Feature::AntiEffect: value = &config.antiEffect; break;
     case Feature::FlexibleBlockPlacement: value = &config.flexibleBlockPlacement; break;
+    case Feature::AccurateBlockPlacement: value = &config.accurateBlockPlacement; break;
+    case Feature::FastRightClick: value = &config.fastRightClick; break;
+    case Feature::FastLeftClick: value = &config.fastLeftClick; break;
     default: return false;
     }
     *value = !*value;

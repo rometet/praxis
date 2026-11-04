@@ -15,7 +15,7 @@ inline std::uint64_t titlePackNow() noexcept {
 }
 struct TitlePackView {
     TitlePackPhase phase{TitlePackPhase::Idle};
-    bool available{}, busy{}, inWorld{}, canReload{};
+    bool available{}, busy{}, inWorld{}, canReload{}, nativeReorderOnly{};
     std::uint64_t revision{}, until{}, token{};
     AppliedStackView current;
     PackApplyBlock block{PackApplyBlock::Unknown};
@@ -78,7 +78,7 @@ public:
         auto reject=[](TitleRequestBlock reason){return TitleRequestResult{false,reason,0};};
         if(closed)return reject(TitleRequestBlock::Closed);
         if(queued||state.busy)return reject(TitleRequestBlock::Busy);
-        if(!state.available)return reject(TitleRequestBlock::Unavailable);
+        if(!state.available || state.nativeReorderOnly)return reject(TitleRequestBlock::Unavailable);
         if(!state.current.known)return reject(TitleRequestBlock::UnknownCurrent);
         if(now>state.until)return reject(TitleRequestBlock::Expired);
         if(reload&&!state.canReload)return reject(TitleRequestBlock::ReloadUnavailable);

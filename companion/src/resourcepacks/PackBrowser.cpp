@@ -4,6 +4,9 @@
 #include <mutex>
 #include <thread>
 #include <Windows.h>
+#include <array>
+#include <string_view>
+#include <filesystem>
 
 namespace praxis::companion::packs {
 namespace {
@@ -44,6 +47,37 @@ void run() noexcept {
     }
     busy=pending=false; running=false; finished=true;retired.notify_all();
 }
+}
+// Only choose known local directories; no file enumeration, symlink
+// traversal or resource-pack mutation occurs on the ImGui thread.
+std::string suggestedLocalPackRoot(std::string_view nativeRoot,bool development) noexcept {
+    try {
+        auto existing=[](std::filesystem::path const& value)->std::string {
+            std::error_code ec;
+            if(value.empty()||!value.is_absolute()
+                ||!std::filesystem::is_directory(value,ec)||ec)
+                return {};
+            auto u=value.lexically_normal().u8string();
+            return {reinterpret_cast<char const*>(u.data()),u.size()};
+        };
+        if(!nativeRoot.empty()){
+            std::filesystem::path native{
+                std::u8string_view(reinterpret_cast<char8_t const*>(nativeRoot.data()),
+                                   nativeRoot.size())};
+            if(auto value=existing(native);!value.empty())return value;
+        }
+        // The 26.60 LeviLauncher EXE is inside its version directory.
+        // Minecraft Bedrock\Users\Shared is where this launcher keeps
+        // imported RP files. Do not guess account-numbered Users folders.
+        std::array<wchar_t,32768> exe{};
+        auto count=GetModuleFileNameW(nullptr,exe.data(),DWORD(exe.size()));
+        if(!count||count>=exe.size())return {};
+        auto path=std::filesystem::path(std::wstring_view(exe.data(),count))
+            .parent_path()/"Minecraft Bedrock"/"Users"/"Shared"
+            /"games"/"com.mojang"
+            /(development?"development_resource_packs":"resource_packs");
+        return existing(path);
+    }catch(...){return {};}
 }
 bool startBrowser() {
     std::lock_guard lock(mutex);

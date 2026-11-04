@@ -142,6 +142,9 @@ void run(std::string_view name){bool reproduce=name.starts_with("reproduce-");
         f.tx.startResult(f.tx.attempt,true);f.tx.finish(f.tx.attempt,true);
         auto replacement=f.owner;replacement.renderer=56;
         check(f.tx.settleExecuted(replacement,true,true,{"new"},14),"explicit frame receipt retargets coordinator");
+        check(shouldRequestWorldChunkGeometry(f.tx.phase,f.tx.geometryRequested,true,true)
+            &&requestWorldGeometryRebuild(f.tx,replacement,true,[]{}),
+            "native texture and current renderer receipt permit one geometry refresh");
         f.group.step(f.tx,15,worldPeerStepPolicy(true,false));
         auto p=f.b.snapshot()->reply;
         check(f.tx.phase==WorldSwitchPhase::Reacquiring&&f.tx.participant.renderer==56
