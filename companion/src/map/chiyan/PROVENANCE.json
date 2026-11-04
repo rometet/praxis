@@ -1,0 +1,46 @@
+{
+  "upstream": "https://github.com/sunjing2/ChiyanMap",
+  "commit": "1785278a865e6dc93d38cea76ccbffaaf64f6659",
+  "license": "GPL-3.0-only",
+  "modified_utc": "2026-10-02",
+  "source_files": {
+    "src/hooks/PlayerHook.h": "e60a5ac95af4d1b295bbd60ccf7ffeeedd44d0209b24a71ef5617d3979061bc5",
+    "src/hooks/DX11Hook.h": "b8b537638b82f727d651d8f85dccecb19409942f4f2f2bbfc28c0f0620b3c1de",
+    "LICENSE": "230184f60bae2feaf244f10a8bac053c8ff33a183bcc365b4d8b876d2b7f4809"
+  },
+  "imported_sections": {
+    "PlayerHook.h": [
+      "463-477 rings",
+      "741-979 biome tint rules",
+      "994-1009 tinted block predicate",
+      "1094-1143 overlay and pillar names",
+      "1166-3130 detailed palette",
+      "3287-3299 water compositing",
+      "1037-1090 bounded biome bilinear interpolation",
+      "1146-1164 pillar-axis state selection",
+      "3177-3184 top-solid native wrapper",
+      "5853-5998 surface/overlay/water selection"
+    ],
+    "DX11Hook.h": [
+      "1024-1036 relief formula"
+    ]
+  },
+  "adaptation": [
+    "mce::Color replaced with value-only Color",
+    "world-global caches and upstream LogColorMiss removed; diagnostics owned by caller",
+    "renderer, hook ownership, inventory suppression, seed map and teleport code not imported",
+    "bilinear weights and relief formula extracted into pure functions",
+    "native data selection separately adapted to SDK 26.51.5 and dimension bounds",
+    "NativeTerrain.cpp adapts top-solid, overlay, pillar-axis and water rules to synchronous client-region reads; placeholders are unavailable and do not descend to bedrock",
+    "One-block terrain images preserve X/Z row-major order and point-sampled colours; owned value-only worker and existing selected-host DX11 resources replace the upstream renderer",
+    "Full dense scanner demand is represented lazily by ring indices; no 526338 Request allocation on game tick",
+    "New terrain filename/format prevents stale pre-port brown palette from re-entering rendering; existing user settings/waypoints are untouched"
+  ],
+  "upstream_comment_notice": "1176 colour table describes Xaero texture sampling and Bedrock adjustments; original comments retained; no Xaero assets/binaries imported",
+  "not_ported": [
+    "Upstream Present/Resize/WndProc/ImGui/font/input owners",
+    "Entity icon/head radar beyond existing player radar",
+    "Seed/chunk overlays, teleport, deathpoints and server-side inventory suppression",
+    "Unbounded/global low-bit cache or forced cave roof logic"
+  ]
+}

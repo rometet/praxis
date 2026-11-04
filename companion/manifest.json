@@ -1,0 +1,9 @@
+{
+  "name": "PraxisCompanion",
+  "entry": "PraxisCompanion.dll",
+  "version": "0.1.0",
+  "type": "native",
+  "platform": "client",
+  "description": "Praxis Companion for Bedrock 1.26.60.05 (in-world RP hot reload unavailable)",
+  "author": "rometet"
+}

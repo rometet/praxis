@@ -1,0 +1,9 @@
+{
+  "name": "${modName}",
+  "entry": "${modFile}",
+  "version": "${modVersion}",
+  "type": "native",
+  "platform": "${modPlatform}",
+  "description": "Praxis Companion for Bedrock 1.26.60.05 (in-world RP hot reload unavailable)",
+  "author": "rometet"
+}

@@ -1,0 +1,13 @@
+# Let Git detect text files while preserving binary resources.
+* text=auto
+
+*.ttf binary
+*.otf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.bmp binary
+*.ico binary
+*.cur binary
+*.mcstructure binary

@@ -1,0 +1,60 @@
+#include <cstdio>
+#include <cstdlib>
+#include <exception>
+#include <filesystem>
+#include <memory>
+#include <string>
+unsigned checks{}, installs{}, removals{}, pins{};
+bool active{}, cleanupSucceeds{true};
+bool mapStarts{true};
+unsigned availableFeatures{1}, availableRenderPasses{1};
+void require(bool b,char const* label){++checks;if(!b){std::fprintf(stderr,"FAIL: %s\n",label);std::exit(1);}}
+namespace ll {
+struct Version { std::string to_string()const{return "26.51.5";} };
+Version getLoaderVersion(){return {};}
+namespace mod {
+struct Logger { template<class... Args> void info(Args const&...){} template<class... Args> void warn(Args const&...){} template<class... Args> void error(Args const&...){} };
+struct NativeMod {
+    static auto current(){return std::make_shared<NativeMod>();}
+    std::filesystem::path getConfigDir()const{return "fake-config";}
+    Logger& getLogger(){static Logger l;return l;}
+};
+}}
+int loaderVersionView(ll::Version const&){return 0;}
+bool supportedLoaderVersion(int){return true;}
+bool loadRuntimeConfig(std::filesystem::path const&){return true;}
+bool installNative(){++installs;return true;}
+bool removeNative(){++removals;return cleanupSucceeds;}
+bool initializeMap(std::filesystem::path const&){return mapStarts;}
+void activateRuntime(){active=true;}
+void deactivateRuntime(){active=false;}
+void retainModuleOnCleanupFailure(){++pins;}
+@MOD_CLASS@
+int main(){
+    CompanionMod normal;
+    require(normal.load() && normal.enable() && active,"normal load/enable activates runtime");
+    auto prior=installs;
+    require(normal.enable() && installs==prior,"duplicate enable keeps installed runtime");
+    require(normal.disable() && !active,"normal stop succeeds and deactivates");
+    require(normal.disable() && !active,"double stop succeeds");
+    require(normal.enable() && active,"clean stop permits re-enable");
+    require(normal.unload() && !active,"normal unload cleans up");
+    CompanionMod failed;
+    require(failed.load() && failed.enable(),"failure fixture starts normally");
+    cleanupSucceeds=false;
+    require(!failed.disable() && !active && pins==1,"unregister failure deactivates runtime and retains module");
+    prior=installs;
+    require(!failed.enable() && installs==prior && !active,"failed cleanup cannot report enable success");
+    require(!failed.unload(),"failed cleanup forbids unload");
+    cleanupSucceeds=true;
+    require(failed.disable(),"cleanup retry may retire remaining hooks");
+    require(!failed.enable() && !failed.unload(),"restart-required state remains sticky after retry");
+    CompanionMod mapFailed;
+    require(mapFailed.load(),"Map failure fixture loads");
+    mapStarts=false; cleanupSucceeds=false; prior=installs;
+    require(!mapFailed.enable() && !active && pins==2,"Map initialization failure retains failed native cleanup");
+    require(installs==prior+1,"Map failure attempts one native install");
+    prior=installs; mapStarts=true; cleanupSucceeds=true;
+    require(!mapFailed.enable() && installs==prior && !mapFailed.unload(),"Map enable failure requires restart after incomplete cleanup");
+    std::printf("F1: %u checks PASS\n",checks);
+}
