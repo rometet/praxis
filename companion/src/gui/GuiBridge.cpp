@@ -132,10 +132,6 @@ constexpr std::array cards{
     ModuleCard{Feature::FlexibleBlockPlacement, "FlexibleBlockPlacement", "R/G/Hを押して5領域の配置・回転・隣接を選択", true},
 };
 static_assert(cards.size() <= featureCount);
-// Keep the card index stable for existing favorites, but do not expose unported placement.
-constexpr bool hiddenUnportedPlacement(Feature feature) noexcept {
-    return feature==Feature::AccurateBlockPlacement;
-}
 constexpr unsigned favoriteSlot(unsigned card) noexcept {
  return favoriteSlotForCard(card,cards[card].feature);
 }
@@ -147,7 +143,12 @@ int moduleCategory(ModuleCard const& card) noexcept {
  default:return card.misc?4:0;
  }
 }
-bool* enabledField(RuntimeConfig& config, Feature feature) noexcept {
+// The unfinished 26.60 placement backends are not advertised to players.
+ // Keep their enum slots and saved configuration intact for future updates.
+ constexpr bool hiddenPlacementCard(Feature feature) noexcept {
+     return feature==Feature::AccurateBlockPlacement;
+ }
+ bool* enabledField(RuntimeConfig& config, Feature feature) noexcept {
     switch (feature) {
     case Feature::OffhandSwap: return &config.offhandSwap;
     case Feature::NoRender: return &config.noRender.enabled;
@@ -651,14 +652,12 @@ void drawDetails(RuntimeConfig& config, Feature feature, bool& changed) {
         changed |= ImGui::SliderInt("Extra clicks / game tick",
             &o.clicksPerTick,1,right?64:8);
         changed |= ImGui::SliderInt("Interval (game ticks)", &o.tickInterval,1,10);
-        // FastBlockPlacement is not offered in this 26.60 preview.
         if(right) ImGui::TextWrapped("Experience bottles currently use vanilla speed; extra repeats disabled.");
         if(right) {
             changed |= ImGui::Checkbox("Use held item in air",&o.allowAirUse);
             changed |= ImGui::Checkbox("Allow interacting with clickable blocks",&o.allowInteractiveBlocks);
-            // Advanced block placement is intentionally unavailable in 26.60 preview.
-            ImGui::TextWrapped("Item use is the default: bone meal and instant-use items. "
-                "Advanced block placement is unavailable in this 26.60 preview.");
+            // Unverified advanced block placement is hidden in the 26.60 prerelease.
+            ImGui::TextWrapped("Item-use repeat only; block placement is not supported in this prerelease.");
             ImGui::TextWrapped("Hold-use items such as food, bows and chargeable items "
                 "are excluded to preserve native charging and consumption.");
         } else {
@@ -710,7 +709,7 @@ void drawDetails(RuntimeConfig& config, Feature feature, bool& changed) {
         break;
     }
     default:
-        ImGui::TextDisabled("26.51.5ではこの機能を準備できません");
+        ImGui::TextDisabled("26.60ではこの機能を準備できません");
         break;
     }
 }
@@ -1151,7 +1150,7 @@ void drawLegacyPraxis(void* context) noexcept {
             drawUnifiedHotkeys(config,changed,bindingEdits);
         } else if (selected == -5) {
             ImGui::TextUnformatted("Praxis Client");
-            disabledTextWrapped("Minecraft Bedrock 1.26.60.05 / LeviLamina Client 26.60.0");
+            disabledTextWrapped("Minecraft Bedrock 1.26.60.05 / LeviLamina 26.60.0");
             ImGui::Separator();
             ImGui::TextWrapped("Praxisの便利機能を設定する画面です。F10で開閉します。");
         } else if (selected == -6) {
@@ -1167,7 +1166,7 @@ void drawLegacyPraxis(void* context) noexcept {
             ImGui::TextUnformatted("機能");
             unsigned onCount=0;
             for(auto const& card:cards) {
-                if(hiddenUnportedPlacement(card.feature))continue;
+                if(hiddenPlacementCard(card.feature))continue;
                 auto* enabled=enabledField(config,card.feature);
                 if(enabled&&*enabled)++onCount;
             }
@@ -1180,7 +1179,7 @@ void drawLegacyPraxis(void* context) noexcept {
             std::vector<std::size_t> filtered;
             for (std::size_t i = 0; i < cards.size(); ++i) {
                 auto const& card = cards[i];
-                if(hiddenUnportedPlacement(card.feature))continue;
+                if(hiddenPlacementCard(card.feature))continue;
                 int const category = moduleCategory(card);
                 bool const favorite = (config.favoriteModules & (1u << favoriteSlot(i))) != 0;
                 if (categoryFilter >= 0 && category != categoryFilter) continue;
@@ -1291,7 +1290,7 @@ void drawLegacyPraxis(void* context) noexcept {
                 ImGui::EndChild();
             }
         } else if (selected >= 0 && selected < static_cast<int>(cards.size())
-                && !hiddenUnportedPlacement(cards[static_cast<std::size_t>(selected)].feature)) {
+                   && !hiddenPlacementCard(cards[static_cast<std::size_t>(selected)].feature)) {
             auto const& card = cards[static_cast<std::size_t>(selected)];
             if (ImGui::Button("< 機能一覧へ戻る")) {
                 selected = -1;

@@ -1526,82 +1526,33 @@ void tick(MinecraftGame& game) noexcept {
 // exact decorated name (same mechanism as isResourceLoadingFinished) and the
 // resolved address is hooked so the detour keeps the real virtual ABI
 // (this == MinecraftGame) instead of a locally derived vtable slot.
-struct WorldNativeIsInGameCompatibilityHook : MinecraftGame {
-    static inline bool (*nativeOrigin)(MinecraftGame const*){};
-    static inline ll::memory::FuncPtr nativeTarget{};
-    bool origin() { return nativeOrigin(this); }
-    static int hook(MinecraftGame& game) {
-        if (nativeOrigin) return 0;
-        // The exported $isInGame thunk is absent from this build's prelink
-        // table (a link-time import failure only). The runtime symbol resolver
-        // still knows its exact decorated name, the same mechanism already
-        // used for isResourceLoadingFinished. Prefer that verified ABI
-        // address; fall back to the locally derived vtable slot only when the
-        // resolver cannot find it. Never guess an RVA.
-        void* resolved=nullptr;
-        try{resolved=native2660::resolveMinecraftGameIsInGame();}catch(...){resolved=nullptr;}
-        if(resolved)nativeTarget=reinterpret_cast<ll::memory::FuncPtr>(resolved);
-        else {
-            auto slot=native2660::zeroAdjustVirtualSlot(&MinecraftGame::isInGame);
-            if (!slot) return -11;
-            if (*slot>1024) return -12;
-            auto table=*reinterpret_cast<void* const* const*>(&game);
-            if (!table || !table[*slot]) return -13;
-            nativeTarget=table[*slot];
-        }
-        if (ll::memory::hook(nativeTarget,ll::memory::toFuncPtr(&WorldNativeIsInGameCompatibilityHook::detour),
-            reinterpret_cast<ll::memory::FuncPtr*>(&nativeOrigin),ll::memory::HookPriority::Normal)!=0) {
-            nativeTarget=nullptr;
-            return -14;
-        }
-        return 0;
-    }
-    bool detour() {
-    if(worldCompatibilityMaskDepth && observedGame.load()==this
-        &&GetCurrentThreadId()==ownerThread.load()) {
-        ++worldCompatibilityQueryHits;
-        return false;
-    }
-    return origin();
-    }
-};
-// 26.60 still declares MinecraftGame::$onFullPackStackInvalid, but the
+// MCAPI #288: 26.60.05 client.7 now exports both exact SDK thunks.
+ // Use the 26.51 ownership/ABI-tested type-instance hook again. Hooking
+ // a secondary ResourcePackListener vtable slot as a raw pointer loses the
+ // compiler's MinecraftGame this adjustment.
+ LL_TYPE_INSTANCE_HOOK(WorldNativeIsInGameCompatibilityHook,
+     ll::memory::HookPriority::Normal,
+     MinecraftGame,&MinecraftGame::$isInGame,bool){
+     if(worldCompatibilityMaskDepth && observedGame.load()==this
+         &&GetCurrentThreadId()==ownerThread.load()) {
+         ++worldCompatibilityQueryHits;
+         return false;
+     }
+     return origin();
+ }
+ // 26.60 still declares MinecraftGame::$onFullPackStackInvalid, but the
 // exported thunk is NOT in this build's prelink table. The previous locally
 // derived ResourcePackListener slot did not match this bool-returning
 // virtual's ABI (the engine observed the non-boolean value 176), so the exact
 // decorated name is resolved at runtime and that verified address is hooked.
 // No listener verdict is ever forced; origin() stays authoritative.
-struct WorldFullStackInvalidHook : ResourcePackListener {
-    static inline bool (*nativeOrigin)(ResourcePackListener*){};
-    static inline ll::memory::FuncPtr nativeTarget{};
-    bool origin() { return nativeOrigin(this); }
-    static int hook(MinecraftGame& game) {
-        if (nativeOrigin) return 0;
-        // Same reasoning as $isInGame: the $onFullPackStackInvalid thunk is
-        // missing from the prelink table but the runtime symbol resolver knows
-        // its exact decorated name. Prefer the verified address; fall back to
-        // the locally derived secondary-base slot only if it is unavailable.
-        void* resolved=nullptr;
-        try{resolved=native2660::resolveMinecraftGameFullStackInvalid();}catch(...){resolved=nullptr;}
-        if(resolved)nativeTarget=reinterpret_cast<ll::memory::FuncPtr>(resolved);
-        else {
-            auto slot=native2660::zeroAdjustVirtualSlot(&ResourcePackListener::onFullPackStackInvalid);
-            if (!slot) return -11;
-            if (*slot>1024) return -12;
-            auto* listener=static_cast<ResourcePackListener*>(&game);
-            auto table=*reinterpret_cast<void* const* const*>(listener);
-            if (!table || !table[*slot]) return -13;
-            nativeTarget=table[*slot];
-        }
-        if (ll::memory::hook(nativeTarget,ll::memory::toFuncPtr(&WorldFullStackInvalidHook::detour),
-            reinterpret_cast<ll::memory::FuncPtr*>(&nativeOrigin),ll::memory::HookPriority::Normal)!=0) {
-            nativeTarget=nullptr;
-            return -14;
-        }
-        return 0;
-    }
-    bool detour() {
-    NativeHookLifetime::Lease lease(lifetime);
+// The original listener is still authoritative; the compatibility
+ // scope is only entered for a fully validated local-world transaction.
+ // No boolean result is ever forced.
+ LL_TYPE_INSTANCE_HOOK(WorldFullStackInvalidHook,
+     ll::memory::HookPriority::Normal,
+     MinecraftGame,&MinecraftGame::$onFullPackStackInvalid,bool){
+     NativeHookLifetime::Lease lease(lifetime);
     auto* game=observedGame.load();
     auto op=active.load();
     if(!op) return origin();
@@ -1748,7 +1699,6 @@ struct WorldFullStackInvalidHook : ResourcePackListener {
     }
     return permitted;
     }
-};
 LL_TYPE_INSTANCE_HOOK(WorldUpdateHook,ll::memory::HookPriority::Normal,MinecraftGame,&MinecraftGame::$update,void){
     NativeHookLifetime::Lease lease(lifetime);
     // Only try installing the native compatibility detours once per process.
@@ -1759,16 +1709,16 @@ LL_TYPE_INSTANCE_HOOK(WorldUpdateHook,ll::memory::HookPriority::Normal,Minecraft
     auto client=ll::service::getClientInstance();
     if(lease.admitted()&&client&&!compatAttempted.exchange(true)){
         int const queue=ensureSharedNativeCompletionQueue(*client)?0:-1;
-        int const game=WorldNativeIsInGameCompatibilityHook::hook(*this);
-        int const invalid=WorldFullStackInvalidHook::hook(*this);
+        int const game=WorldNativeIsInGameCompatibilityHook::hook();
+        int const invalid=WorldFullStackInvalidHook::hook();
         int const preGame=WorldSettingsClientPreGameHook::hook(*client);
         // One-shot runtime evidence: distinguishes "the exported $-thunk was
         // not in this build's prelink table" from "the runtime symbol resolver
         // still located it". Observed data only; no verdict is inferred here.
         bool const isInGameSymbol=native2660::resolveMinecraftGameIsInGame()!=nullptr;
         bool const fullStackSymbol=native2660::resolveMinecraftGameFullStackInvalid()!=nullptr;
-        packDiagnostic("RESOURCEPACK_WORLD event=native_symbol_probe is_in_game_resolved=%u full_stack_invalid_resolved=%u",
-            unsigned(isInGameSymbol),unsigned(fullStackSymbol));
+        packDiagnostic("RESOURCEPACK_WORLD event=native_symbol_probe sdk_import=1 is_in_game_hook=%d full_invalid_hook=%d runtime_view_in_game=%u runtime_view_full_invalid=%u",
+             game,invalid,unsigned(isInGameSymbol),unsigned(fullStackSymbol));
         bool const compatReady=!queue&&!game&&!invalid&&!preGame;
         if(!compatReady)lost.store(true);
         packDiagnostic("RESOURCEPACK_WORLD event=virtual_game_hook_result queue=%d in_game=%d full_invalid=%d pre_game=%d admitted=%u",

@@ -1,0 +1,4 @@
+LIBRARY bedrock_runtime.dll
+EXPORTS
+    ?$isInGame@MinecraftGame@@QEBA_NXZ
+    ?$onFullPackStackInvalid@MinecraftGame@@QEAA_NXZ

@@ -321,7 +321,11 @@ bool queueLholoPlacement(
     // Tweakeroo changes the network yaw for the flexible action but preserves
     // the player's actual pitch. LHolo mirrors that exact pair into one
     // genuine PlayerAuthInput packet; plan.desiredPitch is not a fake camera.
-    request.pitch = accurateDispatch ? plan.desiredPitch : player.getRotation().x;
+    // Flexible Rotation must send BOTH native look axes. Sending only yaw
+    // makes vertical-facing pistons/hoppers use the player's real pitch,
+    // so the server predicts a different state from the selected face.
+    request.pitch = hasFlexibleMode(modes, FlexibleRotation)
+        ? plan.desiredPitch : player.getRotation().x;
     request.yaw = hasFlexibleMode(modes, FlexibleRotation) ? plan.desiredYaw : player.getRotation().y;
     request.maxPickRange = player.getPickRange();
     auto const queued = queue(request);
@@ -499,7 +503,18 @@ FlexibleTransformDecision tryFlexibleTransform(
         admissionNotice(FlexibleAdmissionReason::PlacementAbiUnavailable);
         return FlexibleTransformDecision::Blocked;
     }
-    if (!first) {
+    // On 26.60 a native use-on callback may carry first=false on the
+    // physical first click. The previous gate discarded every such action
+    // before it could reach LHolo's queue. Claim the actual RMB press once;
+    // startBuildBlock/buildBlock/useItemOn may all observe that same press.
+    (void)first;
+    bool pressClaimed{};
+    {
+        std::lock_guard lock(placementMutex);
+        pressClaimed=flexibleClickFence.claim(keyDown(VK_RBUTTON),
+            worldGeneration.load(std::memory_order_acquire),GetTickCount64());
+    }
+    if (!pressClaimed) {
         admissionNotice(FlexibleAdmissionReason::RepeatSuppressed);
         return FlexibleTransformDecision::Blocked;
     }

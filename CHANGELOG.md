@@ -1,6 +1,15 @@
 # Changelog
 
-## v0.1.5-rc.1 (2026-11-05) — Minecraft Bedrock 1.26.60.05 preview
+## v0.1.7-rc.1 (2026-11-05) — Minecraft 1.26.60.05 verified client update
+
+- Repaired TimeChanger daytime sky and WeatherChanger/NoRender Weather visuals; validated these in-game.
+- Completed the tested in-world resource-pack selection and visible texture-refresh route.
+- Fixed 26.60 FreeCamera frame updates, HandRestock first HUD controller handling and the enable-time native RTTI crash.
+- Fixed FlexiblePlacement 26.60 first-press suppression, vertical orientation pitch delivery and LHolo bridge behavior.
+- Updated NoRender world-actor admission for the current rendering pipeline.
+- Preserved advanced placement UI restrictions and the requirement to restart Minecraft when upgrading.
+- Kept public release history separate from local development and diagnostic branches.
+## v0.1.5-rc.1 (2026-11-05) 窶・Minecraft Bedrock 1.26.60.05 preview
 
 - Experimental Windows x64 port for Minecraft 1.26.60.05 / LeviLamina Client 26.60.0.
 - Preserved GUI and existing utility modules, with runtime parity still subject to per-feature acceptance tests.

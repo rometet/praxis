@@ -42,7 +42,7 @@ struct Job {
     std::optional<RestockStep> step;
     std::uint64_t started{},stableSince{},token{};
     int target=-1;
-    bool submitted{},manual{};
+    bool submitted{},manual{},awaitInitialHud{};
 };
 std::shared_ptr<Job> pending;
 bool faulted{};
@@ -87,7 +87,10 @@ std::shared_ptr<Job> beforeUse(Player& player,HandSlot hand=HandSlot::Mainhand,b
     if(insideUse||(pending&&pending->submitted)||(hand!=HandSlot::Mainhand&&hand!=HandSlot::Offhand))return {};
     auto local=eligible(player);auto controller=hud.lock();
     if(!local)return {};
-    if(!controller){trace(0,"use capture has no live HUD controller");return {};}
+    // Food or the final held block can disappear before the HUD controller is
+    // first observed. Retain the exact pre-use snapshot, but never send an
+    // inventory request until the controller is acquired and fully validated.
+    if(!controller)trace(0,"use capture waiting for initial HUD controller");
     auto op=std::make_shared<Job>();op->before=handSnapshot(*local);op->options=settings()->handRestock;
     op->target=hand==HandSlot::Offhand?36:op->before.selected;
     if(op->target==36&&!op->options.offhand)return {};
@@ -107,7 +110,7 @@ std::shared_ptr<Job> beforeUse(Player& player,HandSlot hand=HandSlot::Mainhand,b
     // above leave the final depleted observation intact for its quiet period.
     if(pending){if(op->before!=pending->after)return {};cancel();}
     observe(op->before,op->options,time);
-    op->controller=controller;op->started=time;return op;
+    op->controller=controller;op->awaitInitialHud=!controller;op->started=time;return op;
 }
 void afterUse(Player& player,std::shared_ptr<Job> const& op,bool success) {
     if(!op||!success)return;
@@ -208,14 +211,25 @@ void observeHudController(ll::event::AfterUIRenderEvent& event) {
     auto& view=event.screenView();
     auto const name=view.getScreenName();
     if(name!="hud_screen" && name!="in_game_play_screen")return;
-    auto screen=std::dynamic_pointer_cast<HudScreenController>(
-        std::shared_ptr<ScreenController>(view.mController));
-    if(!screen)return;
+    // 26.60 native UI controllers omit MSVC RTTI. dynamic_pointer_cast is
+    // noexcept even though __RTDynamicCast may throw __non_rtti_object, which
+    // calls std::terminate and crashes the game on the first enabled HUD frame.
+    // The owning ScreenView exposes the concrete HUD route and its controller
+    // reports the native HudScene type (1 << 18). Validate both before an
+    // RTTI-free, shared-owner-preserving cast. Never cast an arbitrary scene.
+    auto owner=std::shared_ptr<ScreenController>(view.mController);
+    if(!owner||owner->getSceneType()!=ui::SceneType::HudScene)return;
+    auto screen=std::static_pointer_cast<HudScreenController>(owner);
     std::shared_ptr<HudContainerManagerController> current=screen->mHudScreenManagerController;
     if(!current)return;
     std::lock_guard lock(mutex);
     if(hud.lock()!=current){
-        cancel();clearObservation();diagnosticStages=0;faulted=false;
+        // Preserve only the exact pre-use snapshot that had no HUD owner when
+        // the last item was consumed. Rebinding any previous owner is forbidden.
+        bool const adopt=pending&&pending->awaitInitialHud&&!pending->submitted
+            &&pending->before.generation==worldGeneration.load(std::memory_order_acquire);
+        if(!adopt)cancel();
+        clearObservation();diagnosticStages=0;faulted=false;
         hud=current;
     }
 }
@@ -287,6 +301,14 @@ void tickHandRestock(LocalPlayer& player) noexcept {
         else clearObservation();
         if(!pending)return;
         auto op=pending;auto controller=op->controller.lock();auto active=hud.lock();
+        if(!controller&&op->awaitInitialHud&&active&&time>=op->started
+            &&time-op->started<=350&&op->before.generation==worldGeneration.load(std::memory_order_acquire)){
+            op->controller=active;op->awaitInitialHud=false;controller=active;
+            trace(14,"final consumption recovered the first live HUD controller");
+        }
+        // No stale UI pointer is retained; unresolved initial HUD ownership
+        // expires after one short capture window, without moving any items.
+        if(!controller&&op->awaitInitialHud&&time>=op->started&&time-op->started<=350)return;
         auto manager=controller;
         if(!controller||active!=controller||!manager||manager->mContainersClosed||s->handRestock!=op->options
             ||!s->on(op->manual?Feature::OffhandSwap:Feature::HandRestock)){cancel();return;}

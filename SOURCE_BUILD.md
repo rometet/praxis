@@ -1,3 +1,19 @@
+# Current v0.1.7-rc.1 source build
+
+Minecraft Bedrock for Windows **1.26.60.05**; LeviLamina Client **26.60.0** (pinned f28a4b5d); Windows x64.
+
+From the tagged public source release, inside companion/:
+
+    xmake f -p windows -a x64 -m release --target_type=client -y
+    xmake b -j 4 PraxisCompanion
+
+The GitHub Release contains the source commit SHA, the exact installed user-tested DLL/PDB hashes and checksums. This native toolchain is not asserted to make byte-identical builds on different machines. Source-code correspondence is verified separately. The standalone LHolo bridge is not included.
+
+Verified offline focused checks: FlexibleClickFence 28, FlexiblePlacement 690, LHolo Flexible Placement ABI 6, HandRestock 42, and FreeCamera offset/input 239. A camera configuration integration test could not run in the standalone host due to LeviLamina initialization; Minecraft gameplay was tested separately.
+
+The exact source release tag and all third-party copyright and license notices must be preserved. Mod DLL hot-unload is not supported.
+
+---
 # PraxisCompanion v0.1.5-rc.1 source build
 
 Target: **Minecraft Bedrock for Windows 1.26.60.05**, **LeviLamina Client 26.60.0** build `f28a4b5d`, bedrockdata `v26.60.5-client.3`.

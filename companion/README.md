@@ -1,49 +1,22 @@
-# PraxisCompanion v0.1.4-rc.1 / Praxis R34
+# PraxisCompanion v0.1.7-rc.1
 
-Minecraft Bedrock 1.26.51.01 | Windows x64 | LeviLamina Client 26.51.5.
+**Minecraft Bedrock for Windows 1.26.60.05 / Windows x64 / LeviLamina Client 26.60.0 (pinned build f28a4b5d)**
 
-This is the canonical public source for the R34 prerelease. The runtime
-manifest schema still reports 0.1.0; the Git tag and package BUILD_INFO.json
-identify the actual release and corresponding source commit.
+Open the Praxis interface with **F10**. The current 26.60 version includes TimeChanger, WeatherChanger, NoRender, overlays, FreeCamera, inventory tools, and FlexiblePlacement. The user verified the core repaired functions in-game, including visible texture updates when switching resource packs inside the world, and transformed placement through a separately installed compatible LHolo.
 
-## New in R34
+The last crash on enabling HandRestock was traced to native 26.60 HUD RTTI. The client now validates the HUD scene type before retrieving the controller. FlexiblePlacement no longer drops the physical first mouse press when Bedrock reports first=false; it keeps click deduplication and the LHolo ownership gate.
 
-- Flexible Block Placement: Rotation (R), Offset (G), Adjacent (H), and
-  combined modes; toggle the feature with P.
-- Flexible Placement wins against conflicting Freelook/FreeCamera hotkeys.
-  In particular G no longer activates Freelook and snaps your view back.
-  Assign a different hotkey to Freelook to retain that function.
-- Floor-stair support handling, hit normalization, click fence and
-  placement-owner diagnostics.
-- Compact F10 interface, streamlined HUD, block-state comparison, and
-  Lamium coexistence controls.
+## Limitations and installation
 
-## Install and limitations
+- The advanced AccurateBlockPlacement and FastBlockPlacement UI remains hidden/disabled.
+- Tested gameplay does not establish universal compatibility with every world/server or 26.51 behavior.
+- LHolo (Flexible Placement ABI v2) is separately required for transformed placement, not included.
+- Never hot-unload/re-enable the native DLL. Exit Minecraft before updating.
+- Preserve config/config.json and back up worlds, data and resource packs.
 
-A separate compatible LHolo build exporting Flexible Placement ABI v2 is
-needed for transformed native placement. LHolo itself is not distributed here.
-No server-side addon is needed by the design, but not every block and BDS
-placement case is confirmed. Minecraft Java Tweakeroo inspires the three
-modes; network implementation on Bedrock is distinct.
+Extract the ZIP's top-level PraxisCompanion directory into the Minecraft version's mods folder.
 
-The experimental native resource-pack reload from R33 is **still limited**
-to its explicitly permitted disposable offline world. It is not enabled
-generally for multiplayer or production worlds.
+Repository: https://github.com/rometet/praxis
+Source release tag: **v0.1.7-rc.1**. Exact source commit and DLL SHA-256 are in the downloadable BUILD_INFO.json and the README included in the binary ZIP.
 
-Extract the client ZIP's PraxisCompanion/ directory into the launcher's
-mods/ folder with Minecraft closed. Preserve your current config.json,
-worlds, server data, texture packs and other mods. Optional matching PDB
-symbols are provided separately.
-
-## Build and licensing
-
-Build in the companion/ subdirectory with xmake and LeviLamina 26.51.5.
-See ../SOURCE_BUILD.md and ../RELEASE_POLICY.md.
-GitHub: https://github.com/rometet/praxis
-Source tag: v0.1.4-rc.1 (exact source SHA and DLL hashes in GitHub Release
-and downloadable BUILD_INFO.json).
-
-Preserve GPL-3.0, MPL 2.0 and third-party license notices in LICENSE,
-LICENSE_COMBINED.txt, THIRD_PARTY_NOTICES.md, ../licenses/ and
-../THIRD_PARTY_NOTICES.md.
-Praxis Client is not affiliated with Mojang or Microsoft.
+Preserve the combined GPL-3.0, MPL-2.0 and third-party notices, including LICENSE_COMBINED.txt, LICENSE, THIRD_PARTY_NOTICES.md, and the upstream licenses. Not affiliated with Mojang or Microsoft.

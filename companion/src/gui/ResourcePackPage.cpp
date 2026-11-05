@@ -11,13 +11,14 @@
 namespace praxis::companion {
 ResourcePackAction drawResourcePackApplyControls(packs::PackPlan const& plan,packs::TitlePackView const& backend){
     bool allowed=plan.validation==packs::ApplyResult::Valid&&backend.available&&!backend.busy&&backend.current.known;
-    // This Windows client release does not provide a working in-world texture reload.
-    // Keep browsing available, but do not advertise a broken apply/reload button.
-    if(backend.inWorld)allowed=false;
     bool reloadAllowed=backend.available&&!backend.busy&&backend.current.known&&backend.canReload
         &&(backend.inWorld||(allowed&&!plan.proposed.empty()));
-    if(backend.inWorld)reloadAllowed=false;
     bool changes=plan.priorityChanged||!plan.disabledCandidates.empty()||std::any_of(plan.proposed.begin(),plan.proposed.end(),[](auto const& p){return p.change==packs::ProposalChange::Enable;});
+#ifdef PRAXIS_LL2660_PORT
+    // Never advertise an unverified live reload as available in the 26.60 prerelease.
+    allowed=false;
+    reloadAllowed=false;
+#endif
     ImGui::BeginDisabled(!allowed||!changes);
     bool apply=ImGui::Button("選択を適用");ImGui::EndDisabled();
     ImGui::BeginDisabled(!reloadAllowed);
@@ -50,8 +51,11 @@ void drawResourcePackPage(packs::AppliedStackView const& supplied){
     if(selection.generation!=catalog.generation)selection.reconcile(catalog);
     if(!proposed&&catalog.complete&&current.known)fromCurrent();
     ImGui::TextUnformatted("リソースパック");
-    ImGui::TextColored({1.0f,0.72f,0.28f,1.0f},
-        "26.60.05: ワールド内のリソースパック即時反映は未動作です。再起動後に通常のMinecraft設定から適用してください。");
+#ifdef PRAXIS_LL2660_PORT
+    ImGui::TextColored(ImVec4{1.0f,0.70f,0.25f,1.0f},
+        "Minecraft 1.26.60: リソースパック切り替え・再読み込みは未対応");
+    ImGui::TextWrapped("パック一覧の閲覧はできますが、ワールド内のテクスチャ更新はまだ動作しません。");
+#endif
     if(backend.r24AuthorizedClone)
         ImGui::TextWrapped("パックを選択して、Minecraftの全リソースを再読み込みできます（複製ワールド限定）。");
     else

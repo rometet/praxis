@@ -11,7 +11,7 @@
 #include "platform/CameraCandidate.h"
 #include "core/WeatherChangerPolicy.h"
 #include "core/NativeHookLifetime.h"
-#include "core/NoRenderWeatherRegistry.h"
+#include "core/NoRenderWeatherRegistry.h" // legacy registry retained for 26.51 tests only
 #include "platform/ToolProtection.h"
 #include "platform/HandRestock.h"
 #include "platform/InventoryRequest.h"
@@ -51,6 +51,11 @@
 #include "mc/client/renderer/game/LevelRendererPlayer.h"
 #include "mc/client/particlesystem/particle/ParticleRenderer.h"
 #include "mc/deps/minecraft_renderer/objects/WeatherRenderObject.h"
+#include "mc/deps/minecraft_renderer/objects/ViewRenderObject.h"
+#include "mc/deps/minecraft_renderer/objects/FrameRenderObject.h"
+#include "core/WeatherOptions.h"
+#include "mc/client/renderer/game/LevelRendererCamera.h"
+#include "mc/world/level/dimension/Dimension.h"
 #include "mc/world/actor/Actor.h"
 #include "mc/deps/input/MouseAction.h"
 #include <Windows.h>
@@ -118,10 +123,20 @@ bool hookOption(IOptionRegistry const& options,Method method,Fn detour,Fn& origi
  dynamicHooks.push_back({target,reinterpret_cast<void*>(detour),true});return true;
 }
 bool worldActor(BaseActorRenderContext& context,Actor& actor){
- if(context.mScreenContext.isDrawingUI||context.mScreenContext.isDrawingFirstPersonObjects)return false;
- auto* renderer=context.mClientInstance.getLevelRenderer();if(!renderer||!renderer->mLevelRendererPlayer)return false;
- auto const& queue=renderer->mLevelRendererPlayer->mActorRenderQueue.get();
- return queue.find(gsl::not_null<Actor*>(&actor))!=queue.end();
+ // 26.60 can dispatch world actors outside the old render queue. Restrict
+ // suppression to the primary playing world and exclude UI/first-person.
+ (void)actor;
+ if(context.mScreenContext.isDrawingUI
+    ||context.mScreenContext.isDrawingFirstPersonObjects
+    ||context.mScreenContext.isCapturingPanorama
+    ||!runtimeReady.load(std::memory_order_acquire))return false;
+ auto client=ll::service::getClientInstance();
+ if(!client||client->getClientInstanceState()!=ClientInstanceState::Playing
+    ||static_cast<IClientInstance*>(&*client)!=&context.mClientInstance)return false;
+ auto* player=client->getLocalPlayer();
+ auto* renderer=client->getLevelRenderer();
+ return player&&renderer&&renderer->mLevelRendererPlayer
+     &&renderer->mLevelRendererPlayer->mDimension==&player->getDimension();
 }
 bool hideActor(BaseActorRenderContext& context,Actor& actor){
  auto s=settings();if(!s->renderMask||!worldActor(context,actor))return false;
@@ -168,39 +183,178 @@ LL_TYPE_INSTANCE_HOOK(ParticlesHook,ll::memory::HookPriority::Lowest,ParticleRen
  NativeHookLifetime::Lease lease(nativeLifetime);if(!lease.admitted()){origin(context,target,position,data);return;}
  if(context.isDrawingUI||(settings()->renderMask&passBit(RenderPass::Particles))==0)origin(context,target,position,data);
 }
-struct WeatherState {
- std::array<float,7> density{};
- std::array<float,7> alpha{};
-};
-NoRenderWeatherRegistry<WeatherRenderObject,WeatherState> trackedWeather;
-std::atomic_bool weatherSuppressLogged{};
-
-WeatherState captureWeatherState(WeatherRenderObject& object){
- WeatherState state{};
- state.density={
-  object.mDensityRain,object.mDensitySnow,object.mDensityPlankton,
-  object.mDensityRedSpores,object.mDensityBlueSpores,
-  object.mDensityAsh,object.mDensityWhiteAsh};
- auto const& params=object.mParams.get();
- for(std::size_t i=0;i<state.alpha.size();++i)state.alpha[i]=params[i].fAlpha;
- return state;
-}
-void restoreWeatherState(WeatherRenderObject& object,WeatherState const& state){
- object.mDensityRain=state.density[0];object.mDensitySnow=state.density[1];
- object.mDensityPlankton=state.density[2];object.mDensityRedSpores=state.density[3];
- object.mDensityBlueSpores=state.density[4];object.mDensityAsh=state.density[5];
- object.mDensityWhiteAsh=state.density[6];
- auto& params=object.mParams.get();
- for(std::size_t i=0;i<state.alpha.size();++i)params[i].fAlpha=state.alpha[i];
-}
-void suppressWeatherState(WeatherRenderObject& object){
+// The 26.60 SDK has no WeatherRenderObject move constructor/destructor hooks.
+// Suppress only the fresh, caller-owned render frame; do not save WeatherRenderObject
+// pointers or mutate world weather, so the next frame restores OFF automatically.
+void suppressWeatherState(WeatherRenderObject& object) {
  object.mDensityRain=0.0f;object.mDensitySnow=0.0f;object.mDensityPlankton=0.0f;
  object.mDensityRedSpores=0.0f;object.mDensityBlueSpores=0.0f;
  object.mDensityAsh=0.0f;object.mDensityWhiteAsh=0.0f;
  auto& params=object.mParams.get();
  for(auto& param:params)param.fAlpha=0.0f;
 }
-// Client 26.60: unavailable WeatherRenderObject ctor/dtor; do not track expired owners.
+bool noRenderWeatherEligible(LevelRendererCamera const& camera) {
+ auto client=ll::service::getClientInstance();
+ if(!client||client->getClientInstanceState()!=ClientInstanceState::Playing)return false;
+ auto* level=client->getLevelRenderer();
+ auto* player=client->getLocalPlayer();
+ if(!level||!player||level!=&camera.mLevelRenderer
+    ||!level->mLevelRendererPlayer||level->mLevelRendererPlayer.get()!=&camera
+    ||camera.mDimension!=&player->getDimension()
+    ||camera.mIsCameraInCaptureMode)return false;
+ return true;
+}
+bool noRenderWeatherRequested() {
+ return runtimeReady.load(std::memory_order_acquire)
+     &&(settings()->renderMask&passBit(RenderPass::Weather))!=0;
+}
+// 26.60/MSVC x64 aggregate-return ABI: RCX is caller-owned output storage,
+// RDX is LevelRendererPlayer. Match the existing WeatherChanger view hook.
+using NoRenderViewMethod=ViewRenderObject(LevelRendererPlayer::*)(ScreenContext&,SubClientId);
+using NoRenderViewRaw=ViewRenderObject* (*)(ViewRenderObject*,LevelRendererPlayer*,ScreenContext&,SubClientId);
+NoRenderViewRaw noRenderViewOrigin{};
+std::atomic_bool noRenderWeatherLogged{};
+struct NoRenderWeatherViewHook {
+ static ViewRenderObject* detour(ViewRenderObject* out,LevelRendererPlayer* renderer,
+                                ScreenContext& screen,SubClientId subClient) {
+  NativeHookLifetime::Lease lease(nativeLifetime);
+  // 26.60 does not install the old TimeChanger pre-render callback that
+  // powered FreeCamera. Reuse this already validated view-production hook,
+  // without registering another native trampoline during world entry.
+  bool const cameraWorldView=lease.admitted()&&renderer&&out
+      &&!screen.isDrawingUI&&!screen.isDrawingFirstPersonObjects
+      &&!screen.isCapturingPanorama;
+  if(cameraWorldView)cameraCandidateBeforeRender(*renderer);
+  ViewRenderObject* returned=noRenderViewOrigin(out,renderer,screen,subClient);
+  if(cameraWorldView)cameraCandidateRender(*renderer);
+  if(!lease.admitted()||!out||returned!=out||!renderer
+     ||screen.isCapturingPanorama||!noRenderWeatherRequested()
+     ||!noRenderWeatherEligible(*renderer))return returned;
+  auto client=ll::service::getClientInstance();
+  if(!client||client->getClientSubId()!=subClient)return returned;
+  auto& data=out->mViewData.get();
+  if(data.mIsShadowPass)return returned;
+  data.mDrawWeather=false;
+  suppressWeatherState(out->mWeatherState.get());
+  if(!noRenderWeatherLogged.exchange(true,std::memory_order_relaxed))
+      logGuiInfo("NoRender Weather 26.60: owned frame precipitation suppressed");
+  return returned;
+ }
+ static int hook() {
+  auto target=ll::memory::resolveIdentifier<NoRenderViewMethod>(
+      &LevelRendererPlayer::createViewRenderObject);
+  if(!target)return -1;
+  // Run outermost: NoRender wins after any WeatherChanger frame edits.
+  return ll::memory::hookEx(target,ll::memory::toFuncPtr(&NoRenderWeatherViewHook::detour),
+      reinterpret_cast<ll::memory::FuncPtr*>(&noRenderViewOrigin),
+      ll::memory::HookPriority::Highest,ll::memory::SaveNone,true);
+ }
+};
+LL_TYPE_INSTANCE_HOOK(NoRenderRainSplashHook,ll::memory::HookPriority::Highest,
+ LevelRendererCamera,&LevelRendererCamera::doRainUpdate,LevelRendererCamera::RainState) {
+ NativeHookLifetime::Lease lease(nativeLifetime);
+ auto rain=origin();
+ if(lease.admitted()&&noRenderWeatherRequested()&&noRenderWeatherEligible(*this))
+     rain.mRainSplashParticles.get().clear();
+ return rain;
+}
+// 26.60 also carries an already assembled FrameRenderObject to renderLevel.
+// In this version the old 26.51 weather/sun producers are not always called.
+// Apply visual-only switches at the actual consuming boundary, without writing
+// Dimension, Weather, world time, weather source or game settings.
+std::atomic_bool visualFrameSeen{},visualNoRenderSeen{},visualWeatherSeen{},visualTimeSeen{};
+LL_TYPE_INSTANCE_HOOK(RenderFrameVisual2660Hook,ll::memory::HookPriority::Normal,
+ LevelRenderer,&LevelRenderer::renderLevel,void,
+ ScreenContext& screen,FrameRenderObject const& frame) {
+ NativeHookLifetime::Lease lease(nativeLifetime);
+ if(lease.admitted()) {
+  auto client=ll::service::getClientInstance();
+  if(client && client->getClientInstanceState()==ClientInstanceState::Playing
+     &&client->getLevelRenderer()==this &&client->getLocalPlayer()
+     &&mLevelRendererPlayer &&!screen.isDrawingUI
+     &&!screen.isDrawingFirstPersonObjects &&!screen.isCapturingPanorama
+     &&runtimeReady.load(std::memory_order_acquire)) {
+    auto* player=client->getLocalPlayer();
+    auto* camera=mLevelRendererPlayer.get();
+    if(camera && camera->mDimension==&player->getDimension()) {
+     auto const requested=settings();
+     bool const noWeather=(requested->renderMask&passBit(RenderPass::Weather))!=0;
+     bool const customWeather=requested->on(Feature::WeatherChanger)
+          &&requested->weatherOptions.mode<=static_cast<unsigned>(WeatherMode::Snow);
+     bool const customTime=requested->on(Feature::TimeChanger);
+     // The native owner constructed this frame as mutable storage; renderLevel
+     // takes a const view of it. Only touch the owned view for this render call.
+     auto& views=const_cast<FrameRenderObject&>(frame).mViews.get();
+     if(!visualFrameSeen.exchange(true,std::memory_order_relaxed))
+         logGuiInfo("VISUAL2660 renderLevel frame hook reached");
+     for(auto& view:views) {
+      auto& data=view.mViewData.get();
+      if(data.mIsShadowPass)continue;
+      auto& sky=view.mSkyState.get();
+      auto& weather=view.mWeatherState.get();
+      if(customTime &&!data.mIsEndDimension) {
+       float const day=player->getDimension().getTimeOfDay(kVisualDayTicks,0.f);
+       if(std::isfinite(day)&&day>=0.f&&day<=1.f) {
+        float const original=sky.mTimeOfDay;
+        sky.mTimeOfDay=(std::isfinite(original)&&original>1.f &&original<=24000.f)
+            ? static_cast<float>(kVisualDayTicks):day;
+        sky.mStarBrightness=0.f;
+        // mSkyDarken is the native 0..1 day brightness multiplier.
+        float const darken=sky.mSkyDarken;
+        if(std::isfinite(darken)&&darken>=0.f&&darken<=1.f)sky.mSkyDarken=1.f;
+        // This frame's colors have already been calculated for the actual
+        // night-time clock. The sun's angle changes above, but the atmosphere
+        // must be adjusted independently. Only touch fresh gameplay-view data.
+        if(player->getDimension().showSky() && !data.mCameraUnderLiquid) {
+         auto daylightFloor=[](mce::Color& color,float r,float g,float b) {
+          if(!std::isfinite(color.r)||!std::isfinite(color.g)||!std::isfinite(color.b))
+              return;
+          color.r=std::clamp(std::max(color.r,r),0.f,1.f);
+          color.g=std::clamp(std::max(color.g,g),0.f,1.f);
+          color.b=std::clamp(std::max(color.b,b),0.f,1.f);
+         };
+         daylightFloor(data.mSkyColor.get(),.46f,.66f,.94f);
+         daylightFloor(data.mSkyZenithColor.get(),.37f,.61f,.94f);
+         daylightFloor(data.mSkyHorizonColor.get(),.55f,.74f,.96f);
+         daylightFloor(data.mFogColor.get(),.57f,.72f,.89f);
+         float const brightness=data.mSkyBrightnessScalar;
+         if(std::isfinite(brightness)&&brightness>=0.f&&brightness<=1.f)
+             data.mSkyBrightnessScalar=1.f;
+         float const ambient=sky.mAmbientBrightness;
+         if(std::isfinite(ambient)&&ambient>=0.f&&ambient<=1.f)
+             sky.mAmbientBrightness=std::max(ambient,.85f);
+        }
+        if(!visualTimeSeen.exchange(true,std::memory_order_relaxed))
+            logGuiInfo("VISUAL2660 TimeChanger frame time overridden");
+       }
+      }
+      if(noWeather||customWeather) {
+       auto& params=weather.mParams.get();
+       bool const rain=customWeather&&!noWeather
+          &&requested->weatherOptions.mode==static_cast<unsigned>(WeatherMode::Rain);
+       bool const snow=customWeather&&!noWeather
+          &&requested->weatherOptions.mode==static_cast<unsigned>(WeatherMode::Snow);
+       data.mDrawWeather=rain||snow;
+       if(noWeather) {
+        suppressWeatherState(weather);
+        if(!visualNoRenderSeen.exchange(true,std::memory_order_relaxed))
+            logGuiInfo("VISUAL2660 NoRender Weather frame suppressed");
+       } else {
+        weather.mDensityRain=rain?requested->weatherOptions.intensity:0.f;
+        weather.mDensitySnow=snow?requested->weatherOptions.intensity:0.f;
+        params[0].fAlpha=rain?1.f:0.f;
+        params[1].fAlpha=snow?1.f:0.f;
+        if(!rain&&!snow)sky.mFogLevel=0.f;
+        if(!visualWeatherSeen.exchange(true,std::memory_order_relaxed))
+            logGuiInfo("VISUAL2660 WeatherChanger frame override applied");
+       }
+      }
+     }
+    }
+  }
+ }
+ origin(screen,frame);
+}
 LL_TYPE_INSTANCE_HOOK(FogHook,ll::memory::HookPriority::Normal,LevelRendererPlayer,
  &LevelRendererPlayer::$setupFog,void,ScreenContext& context,float intensity){
  NativeHookLifetime::Lease lease(nativeLifetime);if(!lease.admitted()){origin(context,intensity);return;}
@@ -254,7 +408,9 @@ std::array freeCameraHookStates{state<FreeCameraMovementHook>(),state<FreeCamera
 // 26.60 still links the old sky render detour, but no longer exposes
 // the non-positioned actor render overload. Keep the positioned actor hook.
 std::array hookStates{state<ActorPositionedHook>(),state<BlockEntityHideHook>(),
- state<WorldOverlayHook>(),state<SkyHook>(),state<ParticlesHook>(),state<FogHook>(),state<FovHook>(),state<TickHook>()};
+ state<WorldOverlayHook>(),state<SkyHook>(),state<ParticlesHook>(),
+ state<NoRenderWeatherViewHook>(),state<NoRenderRainSplashHook>(),
+ state<FogHook>(),state<FovHook>(),state<TickHook>()};
 }
 void captureClient(IClientInstance& client){
  NativeHookLifetime::Lease lease(nativeLifetime);if(!lease.admitted())return;
@@ -293,8 +449,10 @@ bool installNative(){
  nativeLifetime.registrationStarted();
  cameraCandidateStart();
  for(auto& h:hookStates){h.active=h.install()==0;if(!h.active){removeNative();return false;}}
- if(!installTimeChanger())logGuiInfo("TimeChanger client.3 symbols mapped, but native hook installation failed; capability safely disabled");
- if(!installWeatherChanger()){removeNative();return false;}
+ if(!installTimeChanger())logGuiInfo("TimeChanger native hooks unavailable; 26.60 frame visual path will be used when present");
+ if(!installWeatherChanger())logGuiInfo("WeatherChanger 26.51 native Sunny path unavailable; 26.60 frame path will be used when present");
+ bool const visualFrame2660Ready=RenderFrameVisual2660Hook::hook()==0;
+ if(!visualFrame2660Ready)logGuiError("VISUAL2660 frame hook unavailable; weather/time fallback disabled");
   bool freeCameraReady=true;
   for(auto& hook:freeCameraHookStates){if(!hook.active)hook.active=hook.install()==0;freeCameraReady&=hook.active;}
   setFreeCameraMovementBackendAvailable(freeCameraReady);
@@ -335,13 +493,19 @@ bool installNative(){
  installFastClicks();
  installFastBlockPlacement();
  RenderMask masks=passBit(RenderPass::Entities)|passBit(RenderPass::Items)|passBit(RenderPass::BlockEntities)|
-  passBit(RenderPass::Hud)|passBit(RenderPass::Particles)|passBit(RenderPass::Sky)|passBit(RenderPass::Fog)|passBit(RenderPass::Lightning);
+  passBit(RenderPass::Hud)|passBit(RenderPass::Particles)|passBit(RenderPass::Sky)|
+   passBit(RenderPass::Weather)|passBit(RenderPass::Fog)|passBit(RenderPass::Lightning);
  masks|=inspectEffectPatches();availableRenderPasses.store(masks,std::memory_order_release);
  if(masks&antiEffectPasses)availableFeatures.fetch_or(featureRegistryBit(unsigned(Feature::AntiEffect)));
  availableFeatures.fetch_or((1u<<static_cast<unsigned>(Feature::NoRender))
    |(1u<<static_cast<unsigned>(Feature::Zoom))
    |featureRegistryBit(static_cast<unsigned>(Feature::Freelook)));
   if(freeCameraReady)availableFeatures.fetch_or(featureRegistryBit(static_cast<unsigned>(Feature::FreeCamera)));
+ if(visualFrame2660Ready) {
+  availableFeatures.fetch_or(featureRegistryBit(static_cast<unsigned>(Feature::WeatherChanger))
+   |featureRegistryBit(static_cast<unsigned>(Feature::TimeChanger)),std::memory_order_acq_rel);
+  logGuiInfo("VISUAL2660 frame-based WeatherChanger and TimeChanger backends installed");
+ }
  if(!nativeLifetime.open())return false;
  if(!packs::installTitlePackSwitch())logGuiInfo("Resourcepack title apply backend unavailable; local proposal UI retained");
  if(!packs::installWorldPackSwitch())logGuiInfo("Resourcepack world apply backend unavailable; local proposal UI retained");

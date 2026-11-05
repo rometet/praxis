@@ -1,28 +1,41 @@
 # Praxis Client / PraxisCompanion
 
-**Current preview:** v0.1.5-rc.1 — **Minecraft Bedrock for Windows 1.26.60.05**, Windows x64, **LeviLamina Client 26.60.0** (build `f28a4b5d`). This is an **experimental 26.60 port**, not a feature-complete release. The earlier [26.51 prerelease](https://github.com/rometet/praxis/releases/tag/v0.1.4-rc.1) remains available separately.
+**Current prerelease: v0.1.7-rc.1** — Minecraft Bedrock for Windows **1.26.60.05**, Windows x64, pinned **LeviLamina Client 26.60.0** (build f28a4b5d).
 
-## 機能・制限
+Praxis is an independent client-side utility mod. The GUI opens with **F10**. LHolo is installed separately and is required for FlexiblePlacement's native placement bridge (ABI v2).
 
-- F10でPraxis GUIを表示。起動・GUI初期化は26.60.05実機で確認済みです。
-- NoRender、ChunkBorders、Fullbright、Zoom、HUD、Map、ShulkerPreview、TimeChanger、WeatherChanger、FreeLook/FreeCamera、インベントリ機能・Overlayなどの実装を含みます。**全機能を26.60の実機で個別に検証したわけではありません。**
-- **Placement系はFlexibleBlockPlacementのみ表示・利用できます。** AccurateBlockPlacement / FastBlockPlacementはこのプレリリースで非表示・実行時無効化しています。FastRightClickのブロック設置実験設定も無効化しています（通常のアイテム使用は残ります）。
-- **ワールド内のリソースパック即時反映は動作しません。** 選択欄を変更できても、ゲーム内のテクスチャは更新されないことを確認しました。Praxis内のワールド中「適用」「再読み込み」ボタンは無効化しています。通常のMinecraft設定で切り替え、必要ならMinecraftを再起動してください。[mcapi-requests #288](https://github.com/LiteLDev/mcapi-requests/issues/288)
-- WeatherChangerの晴天固定初期化が利用不可になったログがあり、こちらも完全動作は未確認です。
-- Modのホットアンロード・再有効化は非対応です。更新時はMinecraftを再起動してください。
+## 26.60 updates verified in-game
 
-## インストール
+The current client was tested after the fixes below on a 1.26.60.05 world:
 
-1. Minecraftを終了し、既存のPraxis DLL・設定・ワールドのバックアップを取ります。
-2. Minecraft Bedrock for Windows **1.26.60.05** と LeviLamina Client **26.60.0** の互換ビルドを用意します（ローダーの互換性チェックがあるため、異なるビルドでは起動しない場合があります）。
-3. GitHub Releaseの `PraxisCompanion-v0.1.5-rc.1-client-windows-x64.zip` を展開し、`PraxisCompanion/` を対応バージョンの `mods/` に配置します。既存の `config.json` は削除・上書きしないでください。
-4. Minecraft起動後、**F10** でGUIを開きます。
-5. FlexiblePlacementの回転・オフセット・隣接設置には、別途 **flexible-placement ABI v2** 対応のLHoloが必要です。LHoloは同梱されません。
+- **TimeChanger:** sun position and daytime sky/atmosphere rendering.
+- **WeatherChanger / NoRender Weather:** weather display control and precipitation suppression.
+- **World resource packs:** in-world switching and visible texture refresh on the tested path.
+- **FlexiblePlacement:** R rotation and transformed block placement through LHolo, including the first-click fix.
+- **FreeCamera:** activation/restoration and camera movement; **HandRestock:** safe HUD activation and replenishment behavior.
+- **NoRender and supporting utilities:** latest 26.60 updates to render suppression, input and placement compatibility.
 
-## 実機検証について
+This release contains the updated GUI, overlays, map, inventory utilities and other source modules. These are user-observed functional checks, **not exhaustive coverage** of every block, world, server, graphics mode or 26.51 feature.
 
-特定の26.60.05環境で起動・Modロード・GUI初期化・ビルドを確認しています。各種モジュールのマルチ/BDS対応、長時間安定性、ON/OFF復帰、描画性能は保証していません。詳細は [26.60 preview limitations](docs/26.60-PREVIEW-LIMITATIONS.md) をご覧ください。
+## Known limitations
+
+- **AccurateBlockPlacement** and experimental **FastBlockPlacement** remain hidden/disabled in the normal GUI; do not treat them as complete.
+- World resource-pack hot reload was verified in a local gameplay path; other screens, servers and pack combinations may behave differently. Do not replace world or pack backups with this feature.
+- Native hot-unload/re-enable is unsupported. Fully restart Minecraft after upgrading or replacing the DLL.
+- Only the pinned Minecraft and compatible LeviLamina Client builds are supported. LHolo is **not bundled**.
+
+## Installation
+
+1. Fully exit Minecraft. Back up the existing PraxisCompanion folder, especially its settings.
+2. Install Minecraft Bedrock for Windows 1.26.60.05 with compatible LeviLamina Client 26.60.0.
+3. Download the client Windows x64 ZIP for v0.1.7-rc.1 from GitHub Releases.
+4. Extract its PraxisCompanion folder into the corresponding version's mods directory. Preserve your existing config/config.json, worlds and packs.
+5. Start Minecraft and press **F10**. Install a compatible LHolo separately to use FlexiblePlacement.
+
+The release contains the binary SHA-256, immutable source commit and source tag in BUILD_INFO.json and the packaged README.
 
 [Source build](SOURCE_BUILD.md) · [Release policy](RELEASE_POLICY.md) · [Changelog](CHANGELOG.md) · [Third-party notices](THIRD_PARTY_NOTICES.md)
 
-The combined binary contains GPL-3.0-covered ChiyanMap-derived work and other covered source. See `LICENSE`, `companion/LICENSE_COMBINED.txt`, `licenses/`, and `THIRD_PARTY_NOTICES.md`. This independent project is not affiliated with Mojang Studios or Microsoft.
+The project combines GPL-3.0- and MPL-2.0-covered components and third-party code. Preserve LICENSE, companion/LICENSE_COMBINED.txt, licenses/ and THIRD_PARTY_NOTICES.md.
+
+Praxis is not affiliated with Mojang or Microsoft.

@@ -212,18 +212,15 @@ inline Settings runtimeSettings(RuntimeConfig const& config, RenderMask availabl
     result.enabled[static_cast<unsigned>(Feature::FlexibleBlockPlacement)] = config.flexibleBlockPlacement
         && (availableFeatureMask & featureRegistryBit(static_cast<unsigned>(Feature::FlexibleBlockPlacement))) != 0;
     result.flexiblePlacement = config.flexiblePlacementOptions;
-    // The 26.60 public preview only exposes FlexibleBlockPlacement.
-    // Preserve saved user settings, but never run the unported Accurate placement backend.
-    result.enabled[static_cast<unsigned>(Feature::AccurateBlockPlacement)] = false;
+    result.enabled[static_cast<unsigned>(Feature::AccurateBlockPlacement)] = config.accurateBlockPlacement
+        && (availableFeatureMask & featureRegistryBit(static_cast<unsigned>(Feature::AccurateBlockPlacement))) != 0;
     result.accuratePlacement = config.accuratePlacementOptions;
     result.enabled[unsigned(Feature::FastRightClick)] = config.fastRightClick
         && (availableFeatureMask & featureRegistryBit(unsigned(Feature::FastRightClick))) != 0;
     result.enabled[unsigned(Feature::FastLeftClick)] = config.fastLeftClick
         && (availableFeatureMask & featureRegistryBit(unsigned(Feature::FastLeftClick))) != 0;
-    // Keep unsupported fast placement paths inactive even when older profiles requested them.
-    result.fastBlockPlacement=false;
+    result.fastBlockPlacement=config.fastBlockPlacement;
     result.fastRightClick=config.fastRightClickOptions;
-    result.fastRightClick.allowBlockPlacement=false;
     result.fastLeftClick=config.fastLeftClickOptions;
     result.hitboxOptions=config.hitboxOptions;
     result.enabled[static_cast<unsigned>(Feature::Hitbox)]=config.hitboxOptions.enabled;

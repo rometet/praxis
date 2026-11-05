@@ -132,7 +132,7 @@ public:
                 return false;
             }
             loaderVersionAccepted = true;
-            self->getLogger().info("PraxisCompanion 0.1.5-rc.1 client runtime; LeviLamina compatible build verified; config: {}", path.string());
+            self->getLogger().info("PraxisCompanion 0.1.0 client runtime; LeviLamina compatible build verified; config: {}", path.string());
             self->getLogger().warn("Companion feature port: native utility adapters are installed where available; Minecraft runtime verification is still required.");
             return true;
         } catch (std::exception const& error) {
