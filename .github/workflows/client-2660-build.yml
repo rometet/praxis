@@ -44,13 +44,13 @@ jobs:
           throw 'LLVM clang-cl.exe not available on Windows runner.'
       - uses: xmake-io/github-action-setup-xmake@v1
         with:
-          xmake-version: 'latest'
+          xmake-version: '3.1.1'
       - uses: actions/cache@v4
         with:
           path: ~/AppData/Local/.xmake
-          key: praxis-2660-xmake-${{ runner.os }}-llvm22-${{ hashFiles('companion/xmake.lua') }}
+          key: praxis-2660-xmake-${{ runner.os }}-llvm22-xmake311-${{ hashFiles('companion/xmake.lua') }}
           restore-keys: |
-            praxis-2660-xmake-${{ runner.os }}-llvm22-
+            praxis-2660-xmake-${{ runner.os }}-llvm22-xmake311-
       - name: Configure release client
         shell: pwsh
         working-directory: companion

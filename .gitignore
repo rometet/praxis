@@ -25,19 +25,14 @@
 !/licenses/
 !/licenses/**
 !/THIRD_PARTY_NOTICES.md
-!/fix_sdk.py
 !/.github/
 !/.github/**
 !/cmake/
 !/cmake/**
 !/docs/
 !/docs/**
-!/mappings/
-!/mappings/**
 !/src/
 !/src/**
-!/tests/
-!/tests/**
 
 # Current audited Companion layout and portable build instructions.
 !/SOURCE_BUILD.md
