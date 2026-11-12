@@ -423,6 +423,13 @@ target("PraxisCompanion")
     end)
 target_end()
 
+target("PraxisCompanionDeathHistoryTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/map/DeathHistoryTests.cpp")
+target_end()
+
 target("PraxisCompanionPlayerHudTests")
     set_kind("binary")
     set_default(false)
