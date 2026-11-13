@@ -333,9 +333,9 @@ void onFrame(ll::event::AfterUIRenderEvent& event) {
         applyEdge = {};
         return;
     }
-    observe(*c->manager, *c);
     auto s = settings();
     if (!s->itemScroller.recipeFavorites && !s->itemScroller.tradeFavorites) return;
+    observe(*c->manager, *c);
     if (job) {
         tick(*c->manager, *c);
         return;

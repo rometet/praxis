@@ -63,7 +63,7 @@ xmake build -y PraxisCompanion                 # PASS
 xmake build -y PraxisCompanionTsukuyomiFeatureTests
 xmake build -y PraxisCompanionDeathLogTests
 xmake run PraxisCompanionTsukuyomiFeatureTests # 50 checks PASS
-xmake run PraxisCompanionDeathLogTests         # 21 checks PASS
+xmake run PraxisCompanionDeathLogTests         # 23 checks PASS
 xmake run PraxisCompanionPlayerHudTests        # 25 checks PASS
 xmake run PraxisCompanionSaturationTests       # 271 checks PASS
 xmake run PraxisCompanionInformationPolicyTests# 71 checks PASS

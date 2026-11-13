@@ -60,6 +60,11 @@ int main() {
             "preload rejects invalid dimension/coordinates individually");
         check(!history.preload({}, entries), "invalid session rejected");
         check(history.entries(other).empty(), "foreign session never exposed");
+        std::vector<DeathHistoryEntry> replacement{{9, 0, 1, 2, 3}};
+        check(history.preload(world, replacement), "second preload accepted");
+        auto replaced = history.entries(world);
+        check(replaced.size() == 1 && replaced[0].unixSeconds == 9,
+            "preload replaces prior session entries instead of appending duplicates");
 
         Session logSession{world.world, 9, 0, true};
         DeathHistory worldLog;
