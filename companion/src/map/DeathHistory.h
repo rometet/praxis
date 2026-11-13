@@ -41,10 +41,8 @@ public:
     bool preload(Session const& session, std::vector<DeathHistoryEntry> entries,
                  bool requireDimension = true) {
         if (!session.valid()) return false;
-        if (session != session_) {
-            session_ = session;
-            entries_.clear();
-        }
+        session_ = session;
+        entries_.clear();
         for (auto& entry : entries) {
             if (entry.dimension < -128 || entry.dimension > 128
                 || (requireDimension && entry.dimension != session.dimension)
