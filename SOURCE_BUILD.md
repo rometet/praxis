@@ -1,4 +1,4 @@
-# Current v0.1.7-rc.1 source build
+# Current v0.1.7-rc.2 source build
 
 Minecraft Bedrock for Windows **1.26.60.05**; LeviLamina Client **26.60.0** (pinned f28a4b5d); Windows x64.
 

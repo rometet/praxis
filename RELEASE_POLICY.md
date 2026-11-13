@@ -48,4 +48,4 @@ Only material cleared for redistribution and required for the public source/buil
 
 ## 6. Current state
 
-The current v0.1.7-rc.1 client prerelease targets Minecraft Bedrock 1.26.60.05 and pinned LeviLamina Client 26.60.0. Earlier 26.51 releases remain accessible. Every released asset has a tagged public source commit and SHA-256 metadata.
+The current v0.1.7-rc.2 client prerelease targets Minecraft Bedrock 1.26.60.05 and pinned LeviLamina Client 26.60.0. Earlier 26.51 releases remain accessible. Every released asset has a tagged public source commit and SHA-256 metadata.

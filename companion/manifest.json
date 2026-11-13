@@ -1,9 +1,9 @@
 {
-    "name":  "PraxisCompanion",
-    "entry":  "PraxisCompanion.dll",
-    "version":  "0.1.7-rc.1",
-    "type":  "native",
-    "platform":  "client",
-    "description":  "Praxis Companion 26.60.05 - client utility modules, resource-pack live update, and LHolo placement",
-    "author":  "rometet"
+    "name": "PraxisCompanion",
+    "entry": "PraxisCompanion.dll",
+    "version": "0.1.7-rc.2",
+    "type": "native",
+    "platform": "client",
+    "description": "Praxis Companion 26.60.05 - client utility modules, resource-pack live update, and LHolo placement",
+    "author": "rometet"
 }
