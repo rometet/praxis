@@ -76,4 +76,69 @@ inline std::vector<std::string> debugScreenLines(DebugSnapshot const& s, DebugSc
     }
     return out;
 }
+
+// Java Edition F3-inspired layout, with Bedrock SDK-backed values only.
+// "Observed tick interval" is NOT server MSPT; never label it as such.
+struct JavaDebugColumns {
+    std::vector<std::string> left, right;
+};
+inline JavaDebugColumns javaDebugColumns(
+    DebugSnapshot const& s, DebugScreenOptions const& o,
+    std::string xyz, std::string facing, double fps
+) {
+    JavaDebugColumns result;
+    auto append = [](std::vector<std::string>& lines, char const* label, std::string value) {
+        if (value.empty()) value = "Unavailable";
+        lines.emplace_back(std::string(label) + ": " + std::move(value));
+    };
+    auto fmt = [](double value, char const* unit) {
+        if (!std::isfinite(value) || value <= 0) return std::string{"Unavailable"};
+        auto result = std::to_string(value);
+        auto decimal = result.find('.');
+        if (decimal != std::string::npos) result.resize(decimal + 3);
+        return result + unit;
+    };
+    result.left.emplace_back("Minecraft Bedrock 1.26.60.05  (Praxis F3)");
+    if (o.clientPerformance) {
+        append(result.left, "FPS (UI estimate)", fmt(fps, ""));
+        append(result.left, "Client tick", s.clientTick ? std::to_string(s.clientTick) : "");
+        append(result.left, "Tick delta", fmt(s.tickDeltaSeconds*1000., " ms"));
+    }
+    if (o.worldDiagnostics) {
+        result.left.emplace_back("");
+        append(result.left, "XYZ", std::move(xyz));
+        append(result.left, "Facing", std::move(facing));
+        append(result.left, "Dimension", s.dimension);
+        append(result.left, "Chunk", s.chunk);
+        append(result.left, "Biome", s.biome);
+        append(result.left, "Light", s.light);
+        append(result.left, "World time", s.worldTime);
+    }
+    if (o.lookingAt) {
+        result.left.emplace_back("");
+        append(result.left, "Targeted block/entity", s.lookingAt);
+    }
+    result.right.emplace_back("Praxis Client / Debug");
+    result.right.emplace_back("Client-side data; no server internals");
+    if (o.worldDiagnostics) {
+        result.right.emplace_back("");
+        append(result.right, "Process memory", s.memory);
+        append(result.right, "Level ID", s.levelId);
+    }
+    if (o.serverPerformance) {
+        result.right.emplace_back("");
+        append(result.right, "Server tick", s.serverTick ? std::to_string(s.serverTick) : "");
+        append(result.right, "Observed tick rate",
+            s.serverRateKnown ? fmt(s.observedServerTps, " tick/s") : "");
+        append(result.right, "Observed tick interval",
+            s.serverRateKnown ? fmt(s.observedServerMspt, " ms") : "");
+        if (o.showUnavailable) {
+            append(result.right, "Actual server MSPT", "");
+            append(result.right, "Server heap", "");
+            append(result.right, "Server chunk count", "");
+        }
+    }
+    return result;
+}
+
 } // namespace praxis::companion

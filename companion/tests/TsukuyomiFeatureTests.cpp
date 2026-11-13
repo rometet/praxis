@@ -126,6 +126,26 @@ int main() {
         bool sawRate = false;
         for (auto const& line : debugLines) if (line.starts_with("Observed server rate: 19.5")) sawRate = true;
         check(sawRate, "sampled server rate is shown as observed");
+        auto columns=javaDebugColumns(debug,debugOptions,"10, 64, 20","South (0, 0)",144.0);
+        check(!columns.left.empty() && columns.left.front().starts_with("Minecraft Bedrock"),
+              "F3 left panel carries Minecraft heading");
+        check(!columns.right.empty() && columns.right.front().starts_with("Praxis"),
+              "F3 right panel carries diagnostics heading");
+        bool worldCoords=false, honestTickInterval=false, unknownServerMspt=false;
+        for(auto const& line:columns.left)
+            if(line.starts_with("XYZ: 10, 64, 20")) worldCoords=true;
+        for(auto const& line:columns.right) {
+            if(line.starts_with("Observed tick interval:")) honestTickInterval=true;
+            if(line=="Actual server MSPT: Unavailable") unknownServerMspt=true;
+        }
+        check(worldCoords, "F3 left panel shows SDK-backed world coordinates");
+        check(honestTickInterval, "observed tick latency is not mislabelled as actual MSPT");
+        check(unknownServerMspt, "unavailable real server MSPT is explicit");
+        debugOptions.serverPerformance=false;
+        columns=javaDebugColumns(debug,debugOptions,"","",0.0);
+        bool hiddenServerRows=true;
+        for(auto const& line:columns.right)if(line.starts_with("Server tick:"))hiddenServerRows=false;
+        check(hiddenServerRows,"F3 server section can be disabled");
 
         RecipeFavorite recipe;
         recipe.name = "Torch";

@@ -11,6 +11,14 @@
 #include "mc/client/gui/GuiData.h"
 #include "mc/client/gui/ScreenSizeData.h"
 #include "mc/client/gui/screens/ScreenView.h"
+#include "mc/client/gui/controls/UIControl.h"
+#include "mc/client/gui/controls/VisualTree.h"
+#include "mc/deps/core/file/PathView.h"
+#include "mc/deps/core/resource/ResourceLocation.h"
+#include "mc/deps/minecraft_renderer/renderer/BedrockTextureData.h"
+#include "mc/deps/minecraft_renderer/renderer/IsMissingTexture.h"
+#include "mc/deps/minecraft_renderer/renderer/TexturePtr.h"
+#include "mc/deps/core/string/HashedString.h"
 #include "mc/client/gui/Font.h"
 #include "mc/client/gui/FontHandle.h"
 #include "mc/client/gui/TextMeasureData.h"
@@ -62,6 +70,89 @@ void drawFoodHud(void* context) noexcept {
     ImGui::SetCurrentContext(previous);
 }
 #ifndef PRAXIS_FOOD_HUD_TEST
+namespace {
+// Vanilla's hunger control is the only stable alignment source. If an active
+// UI pack moves or removes it, do NOT invent a screen-center coordinate.
+struct HungerBarAnchor { float x{}, y{}; };
+std::optional<HungerBarAnchor> locateVanillaHunger(ScreenView& view) {
+    auto const screen=view.getScreenName();
+    if(screen!="hud_screen" && screen!="in_game_play_screen")return {};
+    auto* tree=view.mVisualTree.get();
+    if(!tree)return {};
+    auto node=tree->getControlByName("hunger_rend",true);
+    if(!node || node->mCachedPositionDirty)return {};
+    auto const xy=*node->mCachedPosition;
+    if(!std::isfinite(xy.x)||!std::isfinite(xy.y)||xy.x<0||xy.y<0)return {};
+    return HungerBarAnchor{xy.x,xy.y};
+}
+enum class HungerFill : unsigned { Empty, Half, Full };
+HungerFill portion(float value,int index) {
+    if(!std::isfinite(value)||value<0.f||value>20.f)return HungerFill::Empty;
+    float const amount=value-static_cast<float>(2*index);
+    if(amount>=2.f)return HungerFill::Full;
+    if(amount>0.f)return HungerFill::Half;
+    return HungerFill::Empty;
+}
+void drawNativeFoodPreview(MinecraftUIRenderContext& ui,char const* path,
+                           std::vector<glm::vec2> const& slots,float opacity) {
+    if(slots.empty())return;
+    auto pointer=ui.getTexture(ResourceLocation(Core::PathView(path)),false);
+    auto const& data=pointer.mClientTexture.get();
+    if(!data || data->mIsMissingTexture==IsMissingTexture::Yes)return;
+    auto const& tex=data->mClientTexture;
+    for(auto const pos:slots)
+        ui.drawImage(tex,pos,{9.f,9.f},{0.f,0.f},{1.f,1.f},false);
+    ui.flushImages(mce::Color{1.f,1.f,1.f},opacity,HashedString{"ui_textured_and_glcolor"});
+}
+void drawSaturationBorder(MinecraftUIRenderContext& ui,float x,float y,
+                          HungerFill fill,mce::Color const& color,float alpha) {
+    if(fill==HungerFill::Empty)return;
+    // Small, legible gold outline around the game's own drumstick texture,
+    // without replacing or covering vanilla's existing food icons.
+    auto const width=fill==HungerFill::Half?4.5f:9.f;
+    ui.drawRectangle(RectangleArea{x,x+width,y,y+9.f},color,alpha,1);
+}
+} // namespace
+void drawNativeAppleSkinHud(ll::event::AfterUIRenderEvent& event) noexcept {
+    try {
+        if(!foodHudNeeded()||guiInputCaptured())return;
+        auto pos=locateVanillaHunger(event.screenView());
+        if(!pos)return;
+        auto const info=informationSnapshot();
+        if(!info || !informationCurrent(*info,worldGeneration.load(),GetTickCount64()))return;
+        auto const hunger=exactFoodValue(info->food.hunger,20.f);
+        if(!hunger)return;
+        auto& ui=event.uiRenderContext();
+        auto* player=ui.mClient.getLocalPlayer();
+        if(!player || !player->isAlive() || player->isCreative() || player->isSpectator())return;
+        auto const restoration=heldFoodRestoration(info->food,info->food.held);
+        float const futureHunger=restoration?std::min(20.f,*hunger+restoration->hunger):*hunger;
+        std::vector<glm::vec2> previewFull,previewHalf;
+        previewFull.reserve(10);previewHalf.reserve(10);
+        for(int i=0;i<10;++i) {
+            auto const current=portion(*hunger,i);
+            auto const after=portion(futureHunger,i);
+            if(after<=current)continue;
+            glm::vec2 const slot{pos->x-8.f-8.f*i,pos->y};
+            if(after==HungerFill::Full)previewFull.push_back(slot);
+            else previewHalf.push_back(slot);
+        }
+        drawNativeFoodPreview(ui,"textures/ui/hunger_full",previewFull,.5f);
+        drawNativeFoodPreview(ui,"textures/ui/hunger_half",previewHalf,.5f);
+        auto const saturation=exactFoodValue(info->food.saturation,20.f);
+        if(!saturation)return;
+        float const futureSat=restoration?std::min(20.f,*saturation+restoration->saturation):*saturation;
+        constexpr mce::Color gold{1.f,.74f,.13f};
+        constexpr mce::Color pale{1.f,.95f,.42f};
+        for(int i=0;i<10;++i) {
+            float const x=pos->x-8.f-8.f*i,y=pos->y;
+            auto const now=portion(*saturation,i);
+            auto const after=portion(futureSat,i);
+            drawSaturationBorder(ui,x,y,now,gold,.95f);
+            if(after>now)drawSaturationBorder(ui,x+.75f,y+.75f,after,pale,.88f);
+        }
+    } catch(...) {}
+}
 void drawNativeOffhandHud(ll::event::AfterUIRenderEvent& event) {
     auto const options=informationOptions();auto o=options->playerHud;
     auto const& transform=options->hudLayouts.panels[static_cast<unsigned>(HudId::Offhand)];

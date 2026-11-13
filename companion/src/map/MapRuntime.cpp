@@ -1,5 +1,6 @@
 #include "map/MapRuntime.h"
 #include "map/DeathHistory.h"
+#include "render/InformationHud.h"
 #include "gui/JapaneseText.h"
 #include "map/MapCore.h"
 #include "map/MapDataSource.h"
@@ -570,7 +571,7 @@ void toggleMapEnabled() noexcept {
 bool mapHudNeeded() noexcept {
     auto s = publication.load(std::memory_order_acquire);
     auto setting = options.load();
-    return setting->enabled && setting->minimap && bool(s);
+    return !debugHudNeeded() && setting->enabled && setting->minimap && bool(s);
 }
 std::array<int, mapActionCount> mapActionBindings() noexcept { return options.load()->actionKeys; }
 bool setMapActionBinding(MapAction action,int key) noexcept {
@@ -606,6 +607,7 @@ bool dispatchMapAction(MapAction action) noexcept {
     } catch (...) { return false; }
 }
 void drawMapHud(void *context) noexcept {
+    if (debugHudNeeded()) return;
     if (!context || context != ImGui::GetCurrentContext())
         return;
     packs::WorldPackParticipant::Lease resourceLease(packs::praxisWorldParticipant());

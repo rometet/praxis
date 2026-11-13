@@ -885,8 +885,8 @@ void drawDetails(RuntimeConfig& config, Feature feature, bool& changed) {
         changed |= ImGui::Checkbox("見ている対象",&o.lookingAt);
         changed |= ImGui::Checkbox("ワールド診断",&o.worldDiagnostics);
         changed |= ImGui::Checkbox("取得不可の項目も表示",&o.showUnavailable);
-        changed |= ImGui::SliderFloat("HUD X",&o.x,0,4096);
-        changed |= ImGui::SliderFloat("HUD Y",&o.y,0,2160);
+        ImGui::TextWrapped("Java版F3風: 座標・ワールド情報を左上、性能・メモリを右上に表示します。");
+        ImGui::TextDisabled("DebugScreenの表示中はミニマップを一時的に非表示にします。");
         changed |= ImGui::SliderFloat("HUD倍率",&o.scale,.5f,3);
         auto color=colorFloats(o.textColor);
         if(ImGui::ColorEdit4("文字色##debug",color.data())){o.textColor=packedAbgr(color);changed=true;}
@@ -1068,13 +1068,9 @@ void drawHudSettings(RuntimeConfig& config, bool& changed, int& selected) {
         }
     }
     if(section("満腹度HUD", "Food Hunger Saturation 隠し満腹度 消耗度 手持ちの食べ物")) {
-        ImGui::TextDisabled("未確認の値は「不明」と表示");
-        if(ImGui::IsItemHovered())ImGui::SetTooltip("隠し満腹度・消耗度は値の変化を確認するまで不明です。手持ちの食べ物はSDKの栄養値から回復量を表示します");
-        if(ImGui::CollapsingHeader("満腹度HUDの位置")) {
-            changed |= ImGui::SliderFloat("満腹度X", &player.foodX,0,4096);
-            changed |= ImGui::SliderFloat("満腹度Y", &player.foodY,0,2160);
-            changed |= ImGui::SliderFloat("満腹度倍率", &player.foodScale,.5f,3);
-        }
+        ImGui::TextWrapped("バニラの満腹度バーに半透明の食料回復見込みと金色の隠し満腹度枠を重ねます。");
+        ImGui::TextDisabled("ゲームの満腹度バーの位置に自動追従します。別の位置・倍率の指定は不要です。");
+        ImGui::TextDisabled("取得できない値は描画しません。クリエイティブでは表示されません。");
     }
     if(section("状態効果HUD", "EffectTimer Potion Effects 残り時間 効果")) {
         auto& e=o.effectTimer;
@@ -1321,21 +1317,20 @@ void drawLegacyPraxis(void* context) noexcept {
             ImGui::TextDisabled("デバッグHUDの表示項目は「機能」→DebugScreenで設定します。");
         } else if (selected == -17) {
             ImGui::TextUnformatted("AppleSkin / 満腹度 HUD");
-            ImGui::TextWrapped("AppleSkin 相当の食料回復予測と満腹度・隠し満腹度・疲労度を表示します。");
+            ImGui::TextWrapped("AppleSkin: バニラの満腹度バーに食料の回復予測と隠し満腹度を重ねます。");
             auto& food = config.informationOptions.playerHud;
             changed |= ImGui::Checkbox("AppleSkin（満腹度HUD）を表示する", &food.foodHud);
             if (!food.foodHud) ImGui::TextColored({1.0f,.70f,.25f,1.f},
                 "現在はOFFです。上のチェックをONにしてください。");
-            changed |= ImGui::SliderFloat("表示位置 X", &food.foodX, 0, 4096);
-            changed |= ImGui::SliderFloat("表示位置 Y", &food.foodY, 0, 2160);
-            changed |= ImGui::SliderFloat("表示倍率", &food.foodScale, .5f, 3.f);
+            ImGui::TextWrapped("半透明の肉アイコン=食料回復見込み、金色の枠=現在の隠し満腹度です。");
+            ImGui::TextDisabled("バニラの満腹度バーに直接重ねます。位置は自動調整されます。");
             ImGui::SeparatorText("現在の観測値");
             auto snapshot = informationSnapshot();
             if (snapshot && informationCurrent(*snapshot,worldGeneration.load(),GetTickCount64())) {
                 auto lines = foodHudLinesJa(snapshot->food);
                 for (auto const& line : lines) if (!line.empty()) ImGui::TextWrapped("%s",line.c_str());
             } else ImGui::TextDisabled("ワールドに入ると、公開SDKから取得可能な値を表示します。");
-            ImGui::TextDisabled("バニラの満腹度アイコンの上書きではなく、独立したテキストHUDです。");
+            ImGui::TextDisabled("専用のテキストHUDは廃止。公開SDKのゲームUI描画を利用します。");
         } else if (selected == -18) {
             drawItemScrollerPage(config, changed);
         } else if (selected == -16) {
@@ -1738,7 +1733,8 @@ void drawChunkHudContent(void* context) noexcept {
         if (informationHudNeeded()) drawInformationHud(context);
         if (effectHudNeeded()) drawEffectHud(context);
         if (debugHudNeeded()) drawDebugHud(context);
-        if (foodHudNeeded()) drawFoodHud(context);
+        // AppleSkin uses the game HUD texture renderer (AfterUIRenderEvent),
+        // not a floating text ImGui window.
         drawChunkHud(context);
         if (shulkerPreviewNeeded()) drawShulkerPreviewContent(context);
         if (mapHudNeeded()) drawMapHud(context);

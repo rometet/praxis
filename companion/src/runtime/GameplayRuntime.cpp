@@ -13,6 +13,8 @@
 #include "ll/api/service/TargetedBedrock.h"
 #include "mc/client/game/ClientInstance.h"
 #include "mc/client/player/LocalPlayer.h"
+#include "mc/client/input/ClientMoveInputHandler.h"
+#include "mc/entity/components/MoveInputComponent.h"
 #include "mc/deps/input/MouseAction.h"
 #include "mc/world/actor/player/Inventory.h"
 #include "mc/world/actor/player/PlayerInventory.h"
@@ -129,53 +131,99 @@ void autoToolTick(IClientInstance& client, LocalPlayer& player) {
         mining.lastSwitchMs = now;
     } catch (...) {}
 }
-void releaseToggle(LocalPlayer& player) {
+// 26.60: Do not hammer Actor::setSneaking/setSprinting every tick. Vanilla
+// recalculates Actor state from its MoveInputComponent, making those setter
+// calls flip-flop on screen and potentially send conflicting movement updates.
+// The published ClientMoveInputHandler::getMoveInput() SDK interface returns the
+// per-client component. Operate only on named public SDK flags, never offsets.
+void releaseToggle(IClientInstance& client) {
     try {
-        if (toggles.appliedSneak && player.isSneaking()) player.setSneaking(false);
-        if (toggles.appliedSprint && player.isSprinting()) player.setSprinting(false);
-    } catch (...) {}
-    toggles.appliedSneak = toggles.appliedSprint = false;
+        if (auto* movement=ClientMoveInputHandler::getMoveInput(client)) {
+            auto& flags=movement->mFlagValues.get();
+            auto& input=movement->mInputState.get().mFlagValues.get();
+            if (toggles.appliedSneak) {
+                flags.set(static_cast<std::size_t>(MoveInputComponent::Flag::PersistSneak),false);
+                if (!(GetAsyncKeyState(VK_SHIFT)&0x8000)) {
+                    flags.set(static_cast<std::size_t>(MoveInputComponent::Flag::Sneaking),false);
+                    input.set(static_cast<std::size_t>(MoveInputState::Flag::SneakDown),false);
+                    input.set(static_cast<std::size_t>(MoveInputState::Flag::SneakToggleDown),false);
+                }
+            }
+            if (toggles.appliedSprint && !(GetAsyncKeyState(VK_CONTROL)&0x8000)) {
+                flags.set(static_cast<std::size_t>(MoveInputComponent::Flag::Sprinting),false);
+                input.set(static_cast<std::size_t>(MoveInputState::Flag::SprintDown),false);
+            }
+        }
+    } catch(...) {}
+    toggles.appliedSneak=toggles.appliedSprint=false;
 }
-void toggleTick(LocalPlayer& player) {
+void toggleTick(IClientInstance& client) {
     try {
-        auto s = settings();
-        if (!s->on(Feature::ToggleSneakSprint) || !gameplayAllowed()) {
-            releaseToggle(player);
+        auto s=settings();
+        if(!s->on(Feature::ToggleSneakSprint) || !gameplayAllowed()) {
+            releaseToggle(client);
             toggles.clear();
             return;
         }
-        auto const& o = s->toggleSneakSprint;
-        // A swallowed key-up (focus changes or other listeners) must not leave
-        // the edge detector permanently latched. Win32 state is only sampled.
+        auto const& o=s->toggleSneakSprint;
         toggles.releaseIfPhysicallyUp(o.sneakToggleKey,
-            (GetAsyncKeyState(o.sneakToggleKey) & 0x8000) != 0);
+            (GetAsyncKeyState(o.sneakToggleKey)&0x8000)!=0);
         toggles.releaseIfPhysicallyUp(o.sprintToggleKey,
-            (GetAsyncKeyState(o.sprintToggleKey) & 0x8000) != 0);
-        if (o.sneakEnabled) {
-            if (toggles.sneak && !player.isSneaking()) {
-                player.setSneaking(true);
-                toggles.appliedSneak = true;
-            } else if (!toggles.sneak && toggles.appliedSneak && player.isSneaking()) {
-                player.setSneaking(false);
-                toggles.appliedSneak = false;
-            }
-        } else if (toggles.appliedSneak) {
-            if (player.isSneaking()) player.setSneaking(false);
-            toggles.appliedSneak = false;
+            (GetAsyncKeyState(o.sprintToggleKey)&0x8000)!=0);
+        auto* movement=ClientMoveInputHandler::getMoveInput(client);
+        if(!movement) {
+            // Public movement component absent: fail closed; no direct Actor
+            // state writes, simulated key presses or hook fallback.
+            toggles.clear();
+            return;
         }
-        if (o.sprintEnabled) {
-            if (toggles.sprint && !player.isSprinting()) {
-                player.setSprinting(true);
-                toggles.appliedSprint = true;
-            } else if (!toggles.sprint && toggles.appliedSprint && player.isSprinting()) {
-                player.setSprinting(false);
-                toggles.appliedSprint = false;
+        auto& flags=movement->mFlagValues.get();
+        auto& input=movement->mInputState.get().mFlagValues.get();
+        if(o.sneakEnabled && toggles.sneak) {
+            flags.set(static_cast<std::size_t>(MoveInputComponent::Flag::Sneaking),true);
+            flags.set(static_cast<std::size_t>(MoveInputComponent::Flag::PersistSneak),true);
+            input.set(static_cast<std::size_t>(MoveInputState::Flag::SneakDown),true);
+            input.set(static_cast<std::size_t>(MoveInputState::Flag::SneakToggleDown),true);
+            toggles.appliedSneak=true;
+        } else if(toggles.appliedSneak) {
+            flags.set(static_cast<std::size_t>(MoveInputComponent::Flag::PersistSneak),false);
+            if(!(GetAsyncKeyState(VK_SHIFT)&0x8000)) {
+                flags.set(static_cast<std::size_t>(MoveInputComponent::Flag::Sneaking),false);
+                input.set(static_cast<std::size_t>(MoveInputState::Flag::SneakDown),false);
+                input.set(static_cast<std::size_t>(MoveInputState::Flag::SneakToggleDown),false);
             }
-        } else if (toggles.appliedSprint) {
-            if (player.isSprinting()) player.setSprinting(false);
-            toggles.appliedSprint = false;
+            toggles.appliedSneak=false;
         }
-    } catch (...) {}
+        if(o.sprintEnabled && toggles.sprint) {
+            flags.set(static_cast<std::size_t>(MoveInputComponent::Flag::Sprinting),true);
+            input.set(static_cast<std::size_t>(MoveInputState::Flag::SprintDown),true);
+            toggles.appliedSprint=true;
+        } else if(toggles.appliedSprint) {
+            if(!(GetAsyncKeyState(VK_CONTROL)&0x8000)) {
+                flags.set(static_cast<std::size_t>(MoveInputComponent::Flag::Sprinting),false);
+                input.set(static_cast<std::size_t>(MoveInputState::Flag::SprintDown),false);
+            }
+            toggles.appliedSprint=false;
+        }
+    } catch(...) {
+        // Incomplete SDK state should never trigger a per-tick Actor setter.
+        toggles.clear();
+    }
+}
+void angleLockTick(IClientInstance& client) {
+    try {
+        auto const s=settings();
+        if(!s->on(Feature::AngleSnap) || !gameplayAllowed()) return;
+        auto const& options=s->angleSnap;
+        if(!options.lockYaw && !options.lockPitch) return;
+        auto* movement=ClientMoveInputHandler::getMoveInput(client);
+        if(!movement)return;
+        // Alternative published path: 26.60 can consume look deltas from the
+        // component, even if MouseInputEvent was already handled upstream.
+        auto& look=movement->mLookDelta.get();
+        if(options.lockYaw)look.x=0.f;
+        if(options.lockPitch)look.y=0.f;
+    } catch(...) {}
 }
 void recordPlayerDeath(LocalPlayer& local) {
     try {
@@ -212,7 +260,8 @@ void tick() {
     previousAlive = alive;
     aliveKnown = true;
     autoToolTick(*client, *player);
-    toggleTick(*player);
+    toggleTick(*client);
+    angleLockTick(*client);
     // AngleSnap's rotational step snapping has no exported, safe writable
     // rotation channel in the pinned LeviLamina SDK. Only the public writable
     // mouse-input axis locks are applied; the limitation is reported in F10.
@@ -221,7 +270,8 @@ void mouse(ll::event::MouseInputEvent& event) {
     std::lock_guard lock(stateMutex);
     if (event.actionButtonId() == MouseAction::ActionLeft)
         leftDown = event.buttonData() == MouseAction::DataDown;
-    if (event.actionButtonId() == MouseAction::ActionMoveRelative && !event.isCancelled()) {
+    if ((event.actionButtonId() == MouseAction::ActionMoveRelative
+        || event.actionButtonId() == MouseAction::ActionMove) && !event.isCancelled()) {
         auto const s = settings();
         if (s->on(Feature::AngleSnap) && gameplayAllowed())
             applyAngleLocks(event.dx(), event.dy(), s->angleSnap);

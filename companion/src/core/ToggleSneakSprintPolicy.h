@@ -48,8 +48,10 @@ struct ToggleStates {
     void clear() noexcept { *this = {}; }
     // A manual press of the vanilla key returns control to the player.
     void manualOverride(bool sneakDown, bool sprintDown) noexcept {
-        if (sneakDown) { sneak = false; appliedSneak = false; }
-        if (sprintDown) { sprint = false; appliedSprint = false; }
+        if (sneakDown) sneak = false;
+        if (sprintDown) sprint = false;
+        // Keep applied* until the runtime clears only the state we installed.
+        // Vanilla physical Shift/Ctrl then owns subsequent movement.
     }
 };
 } // namespace praxis::companion
