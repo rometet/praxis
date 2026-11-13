@@ -642,6 +642,13 @@ void drawDetails(RuntimeConfig& config, Feature feature, bool& changed) {
             }
             ImGui::TextDisabled("交易の選択操作は公開SDKに書き込み経路がなく、お気に入りの記録・確認までです。");
         }
+        for(std::size_t i=0;i<tradeFavoriteLimit;++i) {
+            auto const& trade=sc.trades[i];
+            if(trade.sellItem.empty())continue;
+            std::string label=trade.sellItem+" <- "+trade.buyA;
+            if(!trade.buyB.empty())label+=" + "+trade.buyB;
+            if(ImGui::Selectable(label.c_str(),sc.selectedTrade==i)){sc.selectedTrade=i;changed=true;}
+        }
         ImGui::TextWrapped("レシピ補助はクラフト枠と所持品を読み、一致する材料だけを1個ずつ通常のインベントリ操作で枠へ移します。既存の枠・不足・画面終了・応答失敗では開始せず、途中なら停止します。取引の自動実行は行いません。");
         break;
     }
