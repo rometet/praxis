@@ -353,38 +353,48 @@ void drawHudLayoutEditor(RuntimeConfig& c,bool& changed) {
         if(accepted){c.informationOptions.hudLayouts=draft;changed=true;dirty=false;saveStatus="配置を保存しました。Praxisの配置は現在の設定と保存設定に含まれます。";}
         else saveStatus="LHoloの配置を保存できませんでした。「読込み」後に再試行してください。Praxisの下書きは未保存です。";
     }ImGui::SameLine();
-    if(ImGui::Button("全体を初期化")){draft.panels={};for(auto& value:foreign){value.custom=0;value.scale=1;value.x=value.y=0;value.anchor=0;}dirty=true;}
+    if(ImGui::Button("全体を初期化")){draft.panels={};draft.effects={};for(auto& value:foreign){value.custom=0;value.scale=1;value.x=value.y=0;value.anchor=0;}dirty=true;}
     if(dirty)ImGui::TextDisabled("未保存の編集があります");
     if(!saveStatus.empty())ImGui::TextWrapped("%s",saveStatus.c_str());
-    unsigned count=foreignReady?7:5;
+    unsigned count=foreignReady?8:6;
 #ifdef PRAXIS_HUD_TOOLS_HEADLESS
     hudLayoutTestTargetCount=count;
 #endif
+    auto localName=[](unsigned i){return i==5?hudDisplayNames[6]:hudDisplayNames[i];};
+    auto localTransform=[](HudLayoutOptions const& d,unsigned i)->HudTransform{
+        return i<5?d.panels[i]:i==5?d.effects:HudTransform{};};
     if(selected>=int(count))selected=0;
-    if(ImGui::BeginCombo("対象HUD",selected<5?hudDisplayNames[selected]:selected==5?"LHolo 設計図":"LHolo 材料")){
-        for(unsigned i=0;i<count;++i)if(ImGui::Selectable(i<5?hudDisplayNames[i]:i==5?"LHolo 設計図":"LHolo 材料",selected==int(i)))selected=i;
+    bool const foreignSelected=selected>=6;
+    if(ImGui::BeginCombo("対象HUD",foreignSelected?(selected==6?"LHolo 設計図":"LHolo 材料"):localName(static_cast<unsigned>(selected)))){
+        for(unsigned i=0;i<count;++i)if(ImGui::Selectable(i<6?localName(i):i==6?"LHolo 設計図":"LHolo 材料",selected==int(i)))selected=i;
         ImGui::EndCombo();
     }
     if(selected>=int(count))selected=0;
-    HudTransform transform=selected<5?draft.panels[selected]:HudTransform{foreign[selected-5].custom!=0,foreign[selected-5].x,foreign[selected-5].y,foreign[selected-5].scale,int(foreign[selected-5].anchor)};
+    HudTransform transform=foreignSelected?HudTransform{foreign[selected-6].custom!=0,foreign[selected-6].x,foreign[selected-6].y,foreign[selected-6].scale,int(foreign[selected-6].anchor)}
+        :localTransform(draft,static_cast<unsigned>(selected));
     bool edited=false;edited|=ImGui::Checkbox("位置を指定",&transform.custom);
     edited|=ImGui::SliderFloat("倍率",&transform.scale,.5f,3,"%.2f");
     edited|=ImGui::Combo("基準位置",&transform.anchor,"左上\0上中央\0右上\0左中央\0中央\0右中央\0左下\0下中央\0右下\0");
     edited|=ImGui::InputFloat("横のずれ",&transform.x,1,10);edited|=ImGui::InputFloat("縦のずれ",&transform.y,1,10);
     if(ImGui::Button("基準へ揃える")){transform.custom=true;transform.x=transform.y=0;edited=true;}ImGui::SameLine();
     if(ImGui::Button("初期化")){transform={};edited=true;}
-    if(edited){if(validHudTransform(transform)){if(selected<5)draft.panels[selected]=transform;else {auto& value=foreign[selected-5];value.custom=transform.custom;value.x=transform.x;value.y=transform.y;value.scale=transform.scale;value.anchor=transform.anchor;}dirty=true;}}
+    if(edited){if(validHudTransform(transform)){
+        if(!foreignSelected&&selected<5)draft.panels[selected]=transform;
+        else if(!foreignSelected&&selected==5)draft.effects=transform;
+        else {auto& value=foreign[selected-6];value.custom=transform.custom;value.x=transform.x;value.y=transform.y;value.scale=transform.scale;value.anchor=transform.anchor;}
+        dirty=true;}}
     disabledTextWrapped("枠の大きさは目安です。LHoloの倍率は現在のHUD倍率に掛け合わせます。");
     auto display=ImGui::GetIO().DisplaySize;float cw=std::max(100.f,ImGui::GetContentRegionAvail().x),ch=std::max(80.f,std::min(360.f,ImGui::GetContentRegionAvail().y));
     float ratio=std::min(cw/std::max(1.f,display.x),ch/std::max(1.f,display.y));
     auto start=ImGui::GetCursorScreenPos();auto* draw=ImGui::GetWindowDrawList();draw->AddRectFilled(start,{start.x+display.x*ratio,start.y+display.y*ratio},IM_COL32(25,28,33,255));
-    auto const& o=c.informationOptions;std::array<HudRect,7> defaults{{{o.x,o.y,260*o.scale,150*o.scale},{o.durabilityX,o.durabilityY,316*o.scale,268*o.scale},
+    auto const& o=c.informationOptions;std::array<HudRect,8> defaults{{{o.x,o.y,260*o.scale,150*o.scale},{o.durabilityX,o.durabilityY,316*o.scale,268*o.scale},
         {o.playerHud.offhandX,o.playerHud.offhandY,244*o.playerHud.offhandScale,64*o.playerHud.offhandScale},{o.playerHud.foodX,o.playerHud.foodY,250*o.playerHud.foodScale,85*o.playerHud.foodScale},
-        {10,300,240,125},{12,display.y-180,330,168},{display.x-330,display.y-180,318,168}}};
+        {10,300,240,125},{o.effectTimer.x,o.effectTimer.y,220,80},
+        {12,display.y-180,330,168},{display.x-330,display.y-180,318,168}}};
     for(unsigned i=0;i<count;++i){
-        HudTransform t=i<5?draft.panels[i]:HudTransform{foreign[i-5].custom!=0,foreign[i-5].x,foreign[i-5].y,foreign[i-5].scale,int(foreign[i-5].anchor)};
+        HudTransform t=i<6?localTransform(draft,i):HudTransform{foreign[i-6].custom!=0,foreign[i-6].x,foreign[i-6].y,foreign[i-6].scale,int(foreign[i-6].anchor)};
         auto box=defaults[i];if(t.custom){
-            float legacyScale=i<2?o.scale:i==2?o.playerHud.offhandScale:i==3?o.playerHud.foodScale:1.f;
+            float legacyScale=i<2?o.scale:i==2?o.playerHud.offhandScale:i==3?o.playerHud.foodScale:i==5?o.effectTimer.scale:1.f;
             box.width*=t.scale/legacyScale;box.height*=t.scale/legacyScale;
         }
         box=transformHud(box,t,display.x,display.y);box=placeHud(box,display.x,display.y,{});
@@ -392,12 +402,12 @@ void drawHudLayoutEditor(RuntimeConfig& c,bool& changed) {
         draw->AddRectFilled(a,z,i==unsigned(selected)?IM_COL32(110,65,76,220):IM_COL32(50,65,76,180));draw->AddRect(a,z,IM_COL32(180,180,195,255));
         auto saved=ImGui::GetCursorPos();ImGui::SetCursorScreenPos(a);ImGui::PushID(i);
         ImGui::InvisibleButton("##panel",{std::max(5.f,z.x-a.x),std::max(5.f,z.y-a.y)});
-        if(ImGui::IsItemHovered())ImGui::SetTooltip("%s / 左ドラッグで移動",i<5?hudDisplayNames[i]:i==5?"LHolo 設計図":"LHolo 材料");
+        if(ImGui::IsItemHovered())ImGui::SetTooltip("%s / 左ドラッグで移動",i<6?localName(i):i==6?"LHolo 設計図":"LHolo 材料");
         if(ImGui::IsItemClicked())selected=i;
         if(ImGui::IsItemActive()&&ImGui::IsMouseDragging(0)){box.x+=ImGui::GetIO().MouseDelta.x/ratio;box.y+=ImGui::GetIO().MouseDelta.y/ratio;moveHud(t,box,display.x,display.y);
-            if(i<5)draft.panels[i]=t;else {foreign[i-5].custom=1;foreign[i-5].x=t.x;foreign[i-5].y=t.y;foreign[i-5].anchor=t.anchor;}dirty=true;}
+            if(i<5)draft.panels[i]=t;else if(i==5)draft.effects=t;else {foreign[i-6].custom=1;foreign[i-6].x=t.x;foreign[i-6].y=t.y;foreign[i-6].anchor=t.anchor;}dirty=true;}
         ImGui::PopID();ImGui::SetCursorPos(saved);
-        constexpr char const* labels[]{"情報","装備","左手","満腹","チャンク","設計図","材料"};
+        char const* labels[]{"情報","装備","左手","満腹","チャンク","状態効果","設計図","材料"};
         ImVec4 clip{a.x+1,a.y+1,z.x-1,z.y-1};
         draw->AddText(ImGui::GetFont(),std::clamp(ImGui::GetFontSize()*ratio,8.f,12.f),{a.x+2,a.y+2},IM_COL32_WHITE,labels[i],nullptr,0,&clip);
     }

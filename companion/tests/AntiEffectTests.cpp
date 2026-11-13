@@ -26,7 +26,7 @@ int main() {
     full["antiEffectOptions"]["futureDarkness"]=nullptr;full["keybinds"]=std::vector<int>(32,85);full["keybindModifiers"]=std::vector<unsigned>(32,7);
     full["favoriteModules"]=UINT32_MAX;RuntimeConfig decoded;check(decodeRuntimeConfig(full,decoded));check(decoded.antiEffect);
     auto typed=ll::reflection::serialize<ConfigJson>(decoded).value();overlayOwnedConfig(full,typed);check(full["antiEffectOptions"]["futureDarkness"].is_null());
-    for(unsigned i:{15u,16u,17u,18u,19u,22u,25u,31u}) {check(!(ownedFeatureSlotMask&featureRegistryBit(i)));check(full["keybinds"][i]==85&&full["keybindModifiers"][i]==7);}
+    for(unsigned i:{22u,25u,31u}) {check(!(ownedFeatureSlotMask&featureRegistryBit(i)));check(full["keybinds"][i]==85&&full["keybindModifiers"][i]==7);}
     auto before=full;auto raw=typed;raw["antiEffect"]=false;raw["inventoryHud"]=false;
     overlayOwnedConfig(full,raw,false,ownedFeatureSlotMask&~(featureRegistryBit(23)|featureRegistryBit(24)));
     check(full["antiEffect"]==before["antiEffect"]);check(full["antiEffectOptions"]==before["antiEffectOptions"]);check(full["inventoryHudOptions"]==before["inventoryHudOptions"]);

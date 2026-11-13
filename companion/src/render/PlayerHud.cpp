@@ -25,6 +25,7 @@
 #include "mc/deps/core/math/Color.h"
 #endif
 #include <Windows.h>
+#include <algorithm>
 #include <imgui.h>
 
 namespace praxis::companion {
@@ -42,8 +43,9 @@ void drawFoodHud(void* context) noexcept {
         auto display=ImGui::GetIO().DisplaySize;
         if(!std::isfinite(display.x)||!std::isfinite(display.y)||display.x<=0||display.y<=0){ImGui::SetCurrentContext(previous);return;}
         auto lines=foodHudLinesJa(sample->food);
+        lines.erase(std::remove_if(lines.begin(),lines.end(),[](std::string const& line){return line.empty();}),lines.end());
         float width=0;for(auto const& line:lines)width=std::max(width,ImGui::CalcTextSize(line.c_str()).x*h.foodScale);
-        float height=3*ImGui::GetTextLineHeightWithSpacing()*h.foodScale;
+        float height=static_cast<float>(lines.size())*ImGui::GetTextLineHeightWithSpacing()*h.foodScale;
         auto padding=ImGui::GetStyle().WindowPadding;width+=padding.x*2;height+=padding.y*2;
         std::array obstacles{informationHudBounds(),durabilityHudBounds(),paperDollBounds(sample->logicalWidth/display.x,sample->logicalHeight/display.y)};
         auto placed=placeHud(transformHud({h.foodX,h.foodY,width,height},transform,display.x,display.y),display.x,display.y,obstacles);

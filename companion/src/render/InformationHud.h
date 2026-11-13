@@ -7,4 +7,8 @@ HudRect durabilityHudBounds() noexcept;
 HudRect informationHudBounds() noexcept;
 bool informationHudNeeded() noexcept;
 void drawInformationHud(void* context) noexcept;
+bool effectHudNeeded() noexcept;
+void drawEffectHud(void* context) noexcept;
+bool debugHudNeeded() noexcept;
+void drawDebugHud(void* context) noexcept;
 } // namespace praxis::companion

@@ -26,6 +26,7 @@ add_cxflags("/utf-8", "/EHs", "-Wno-invalid-offsetof", "-Wno-microsoft-cast", "-
 
 local integrated_sources = {"src/map/chiyan/TerrainPalette.cpp", "src/map/chiyan/NativeTerrain.cpp", "src/map/TerrainBaker.cpp", "src/map/MapCore.cpp", "src/map/MapPersistence.cpp", "src/map/MapDataSource.cpp",
     "src/map/MapRenderer.cpp", "src/map/MapGraphics.cpp", "src/map/MapRuntime.cpp", "src/runtime/InformationRuntime.cpp",
+    "src/runtime/GameplayRuntime.cpp", "src/runtime/DeathLog.cpp",
     "src/render/InformationHud.cpp", "src/render/NativeDurabilityHud.cpp", "src/render/PlayerHud.cpp", "src/gui/HudTools.cpp", "src/runtime/ConfigStorage.cpp"}
 
 table.insert(integrated_sources, "src/render/InventoryHud.cpp")
@@ -36,6 +37,7 @@ table.insert(integrated_sources, "src/platform/InventoryRequest.cpp")
 table.insert(integrated_sources, "src/platform/InventorySnapshot.cpp")
 table.insert(integrated_sources, "src/platform/HandRestock.cpp")
 table.insert(integrated_sources, "src/platform/InventoryActions.cpp")
+table.insert(integrated_sources, "src/platform/ItemScrollerExtras.cpp")
 table.insert(integrated_sources, "src/platform/FastClick.cpp")
 table.insert(integrated_sources, "src/platform/FastBlockPlacement.cpp")
 
@@ -428,6 +430,20 @@ target("PraxisCompanionDeathHistoryTests")
     set_default(false)
     add_includedirs("src")
     add_files("tests/map/DeathHistoryTests.cpp")
+target_end()
+
+target("PraxisCompanionDeathLogTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/DeathLogTests.cpp")
+target_end()
+
+target("PraxisCompanionTsukuyomiFeatureTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/TsukuyomiFeatureTests.cpp")
 target_end()
 
 target("PraxisCompanionPlayerHudTests")

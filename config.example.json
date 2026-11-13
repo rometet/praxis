@@ -283,5 +283,43 @@
     "degreesPerPixel": 0.15,
     "wheelDistance": 1.0,
     "flightSpeed": 4.0
+  },
+  "autoTool": false,
+  "autoToolOptions": {
+    "switchBack": true,
+    "requireImprovement": true,
+    "skipLowDurability": true,
+    "cooldownMs": 250
+  },
+  "effectTimer": false,
+  "angleSnap": false,
+  "angleSnapOptions": {
+    "lockYaw": false,
+    "lockPitch": false,
+    "snapYaw": false,
+    "snapPitch": false,
+    "yawStep": 15.0,
+    "pitchStep": 15.0,
+    "snapWhileCameraFeature": false
+  },
+  "toggleSneakSprint": false,
+  "toggleSneakSprintOptions": {
+    "sneakToggleKey": 86,
+    "sprintToggleKey": 66,
+    "sneakModifiers": 8,
+    "sprintModifiers": 8,
+    "sneakEnabled": true,
+    "sprintEnabled": true
+  },
+  "debugScreen": false,
+  "itemScrollerOptions": {
+    "recipeFavorites": false,
+    "tradeFavorites": false,
+    "requireConfirmation": true,
+    "applyKey": 0,
+    "applyModifiers": 8,
+    "maxSteps": 18,
+    "selectedRecipe": 0,
+    "selectedTrade": 0
   }
 }

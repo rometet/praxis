@@ -3,6 +3,7 @@
 #include "runtime/Runtime.h"
 #include "core/WeatherChangerDiagnostics.h"
 #include "runtime/InformationRuntime.h"
+#include "runtime/DeathLog.h"
 #include "runtime/ConfigStorage.h"
 #include "render/Renderer.h"
 #include "render/ShulkerPreview.h"
@@ -11,6 +12,7 @@
 #include "gui/HudTools.h"
 #include "gui/JapaneseText.h"
 #include "platform/HandRestock.h"
+#include "platform/ItemScrollerExtras.h"
 #include "gui/PresentationHints.h"
 #include "map/MapRuntime.h"
 #include "map/MapGraphics.h"
@@ -122,6 +124,11 @@ constexpr std::array cards{
     ModuleCard{Feature::HandRestock, "HandRestock", "使用後にメインハンドを補充", true},
     ModuleCard{Feature::InventorySort, "InventorySort", "カーソルを合わせた領域を整理", true},
     ModuleCard{Feature::InventoryTransfer, "InventoryTransfer", "収納と手持ちの間で移動", true},
+    ModuleCard{Feature::AutoTool, "AutoTool", "対象ブロックに最適な道具を選ぶ", true},
+    ModuleCard{Feature::EffectTimer, "EffectTimer", "状態効果の残り時間を表示", true},
+    ModuleCard{Feature::AngleSnap, "AngleSnap", "視点の角度固定とスナップ", true},
+    ModuleCard{Feature::ToggleSneakSprint, "ToggleSneakSprint", "スニークとダッシュを切り替え", true},
+    ModuleCard{Feature::DebugScreen, "DebugScreen", "クライアント・ワールド診断", true},
     ModuleCard{Feature::Freelook, "Freelook", "体の向きを保って周囲を見回す", false},
     ModuleCard{Feature::FreeCamera, "FreeCamera", "WASD・Space・Shiftでカメラを移動", false},
     ModuleCard{Feature::AntiEffect, "AntiEffect", "炎・ポータルの画面効果を抑制", false},
@@ -139,9 +146,11 @@ constexpr unsigned favoriteSlot(unsigned card) noexcept {
 int moduleCategory(ModuleCard const& card) noexcept {
  switch(card.feature){
  case Feature::ToolProtection:case Feature::WeaponSwitch:case Feature::HandRestock:
-  case Feature::InventorySort:case Feature::InventoryTransfer:case Feature::OffhandSwap:return 2;
- default:return card.misc?4:0;
- }
+  case Feature::InventorySort:case Feature::InventoryTransfer:case Feature::OffhandSwap:
+  case Feature::AutoTool:case Feature::ToggleSneakSprint:case Feature::AngleSnap:return 2;
+ case Feature::EffectTimer:case Feature::DebugScreen:return 1;
+  default:return card.misc?4:0;
+  }
 }
 // The unfinished 26.60 placement backends are not advertised to players.
  // Keep their enum slots and saved configuration intact for future updates.
@@ -173,6 +182,11 @@ int moduleCategory(ModuleCard const& card) noexcept {
     case Feature::AccurateBlockPlacement: return &config.accurateBlockPlacement;
     case Feature::FastRightClick: return &config.fastRightClick;
     case Feature::FastLeftClick: return &config.fastLeftClick;
+    case Feature::AutoTool: return &config.autoTool;
+    case Feature::EffectTimer: return &config.effectTimer;
+    case Feature::AngleSnap: return &config.angleSnap;
+    case Feature::ToggleSneakSprint: return &config.toggleSneakSprint;
+    case Feature::DebugScreen: return &config.debugScreen;
     default: return nullptr;
     }
 }
@@ -572,6 +586,63 @@ void drawDetails(RuntimeConfig& config, Feature feature, bool& changed) {
         exclusions("手持ちの除外",o.excludedInventory);
         exclusions("収納の除外",o.excludedStorage);
         ImGui::TextWrapped("試験機能・初期は無効。「キー割当」で整理の実行キーを設定します。ON/OFF用キーとは別です。所持品や収納の整理したい領域にカーソルを合わせて押します。SDKの識別名・個数・ID・カテゴリ・レア度順に並べます。固定・装備・作業・出力スロットは対象外。計画が上限を超える場合は実行しません。途中の内容変更・失敗・画面終了で停止します。");
+        ImGui::SeparatorText("レシピ・交易のお気に入り");
+        auto& sc=config.itemScrollerOptions;
+        changed |= ImGui::Checkbox("レシピのお気に入りとクラフト補助",&sc.recipeFavorites);
+        changed |= ImGui::Checkbox("交易のお気に入り",&sc.tradeFavorites);
+        changed |= ImGui::Checkbox("適用前に確認を求める",&sc.requireConfirmation);
+        ImGui::SetNextItemWidth(100.f);
+        int applyKey=sc.applyKey;
+        if(ImGui::InputInt("レシピ適用キー",&applyKey)){sc.applyKey=std::clamp(applyKey,0,255);changed=true;}
+        ImGui::TextWrapped("状態: %s",itemScrollerStatus().c_str());
+        ImGui::TextDisabled("クラフト画面を開いた状態で「適用キー」を押します。初期は2回押しで確定。");
+        auto observed=itemScrollerObservation();
+        if(observed->recipeValid) {
+            ImGui::TextDisabled("最後に観測したクラフト枠 (%s)",observed->source.c_str());
+            ImGui::BeginChild("##observed_grid",{0.0f,86.0f},ImGuiChildFlags_Borders);
+            for(int i=0;i<9;++i) {
+                if(i%3)ImGui::SameLine();
+                std::string label=observed->grid[i].empty()?"(空)":observed->grid[i];
+                if(label.size()>22)label.resize(22);
+                ImGui::TextDisabled("%s",label.c_str());
+            }
+            ImGui::EndChild();
+            static char recipeName[65]{};
+            if(recipeName[0]==0)std::snprintf(recipeName,sizeof(recipeName),"お気に入り%u",static_cast<unsigned>(sc.selectedRecipe+1));
+            ImGui::SetNextItemWidth(-1.f);
+            ImGui::InputText("##recipe_name",recipeName,sizeof(recipeName));
+            if(ImGui::Button("現在のクラフト枠を保存")) {
+                auto& recipe=sc.recipes[sc.selectedRecipe];
+                recipe={};
+                recipe.name=recipeName;
+                recipe.result=observed->result;
+                recipe.grid=observed->grid;
+                changed=true;
+            }
+            ImGui::SameLine();
+            if(ImGui::Button("選択を消去")) {sc.recipes[sc.selectedRecipe]={};changed=true;}
+        } else ImGui::TextDisabled("クラフト画面を開くと現在の枠を保存できます。");
+        int selected=static_cast<int>(sc.selectedRecipe);
+        ImGui::SetNextItemWidth(-1.f);
+        if(ImGui::BeginCombo("##recipe_favorites",emptyRecipe(sc.recipes[sc.selectedRecipe])?"(未選択)":sc.recipes[sc.selectedRecipe].name.c_str())) {
+            for(int i=0;i<static_cast<int>(recipeFavoriteLimit);++i) {
+                std::string label=emptyRecipe(sc.recipes[i])?"(空)":sc.recipes[i].name;
+                if(ImGui::Selectable(label.c_str(),selected==i)) {selected=i;sc.selectedRecipe=static_cast<std::size_t>(i);changed=true;}
+            }
+            ImGui::EndCombo();
+        }
+        if(observed->tradeValid) {
+            ImGui::TextDisabled("最後の交易: %s -> %s",observed->tradeBuyA.c_str(),observed->tradeSell.c_str());
+            if(ImGui::Button("現在の交易を保存")) {
+                for(auto& trade:sc.trades)
+                    if(trade.sellItem.empty()) {
+                        trade={observed->tradeSell,observed->tradeBuyA,observed->tradeBuyB,observed->tradeCountA,observed->tradeCountB};
+                        changed=true;break;
+                    }
+            }
+            ImGui::TextDisabled("交易の選択操作は公開SDKに書き込み経路がなく、お気に入りの記録・確認までです。");
+        }
+        ImGui::TextWrapped("レシピ補助はクラフト枠と所持品を読み、一致する材料だけを1個ずつ通常のインベントリ操作で枠へ移します。既存の枠・不足・画面終了・応答失敗では開始せず、途中なら停止します。取引の自動実行は行いません。");
         break;
     }
     case Feature::OffhandSwap: {
@@ -708,6 +779,79 @@ void drawDetails(RuntimeConfig& config, Feature feature, bool& changed) {
         ImGui::TextDisabled("ログ/ホッパー/ピストン等の状態はバニラの配置判定に委ね、支持面・到達距離・空きセルが確認できない場合は変換しません。");
         break;
     }
+    case Feature::AutoTool: {
+        auto& o=config.autoToolOptions;
+        changed |= ImGui::Checkbox("採掘後に元のスロットへ戻す",&o.switchBack);
+        changed |= ImGui::Checkbox("より速い道具のときだけ切り替え",&o.requireImprovement);
+        changed |= ImGui::Checkbox("破損間近の道具を除外",&o.skipLowDurability);
+        ImGui::SetNextItemWidth(220.f);
+        changed |= ImGui::SliderInt("切替の最短間隔",&o.cooldownMs,0,2000,"%d ms");
+        ImGui::TextWrapped("初期は無効。左ボタンでブロックを狙っている間、ホットバーの道具から耐久値を考慮して最速の物を選びます。攻撃対象・GUI・フォーカス外・未読込チャンクでは動作しません。");
+        ImGui::TextDisabled("LLのItemStack::getDestroySpeedと公開イベントのみ使用");
+        break;
+    }
+    case Feature::EffectTimer: {
+        auto& o=config.informationOptions.effectTimer;
+        ImGui::TextDisabled("アクティブな効果はSDKのgetAllEffects()から取得");
+        changed |= ImGui::Checkbox("効果レベルを表示",&o.showAmplifier);
+        changed |= ImGui::Checkbox("残り時間を表示",&o.showRemaining);
+        changed |= ImGui::Checkbox("環境効果も表示",&o.showAmbient);
+        changed |= ImGui::Checkbox("残り時間順に並べる",&o.sortByRemaining);
+        changed |= ImGui::Checkbox("コンパクト表示",&o.compact);
+        changed |= ImGui::SliderFloat("HUD X",&o.x,0,4096);
+        changed |= ImGui::SliderFloat("HUD Y",&o.y,0,2160);
+        changed |= ImGui::SliderFloat("HUD倍率",&o.scale,.5f,3);
+        auto color=colorFloats(o.textColor);
+        if(ImGui::ColorEdit4("文字色",color.data())){o.textColor=packedAbgr(color);changed=true;}
+        ImGui::TextWrapped("効果時間はゲームが公開するEffectDuration(ティック)を実時間に換算します。取得できない値は表示しません。");
+        break;
+    }
+    case Feature::AngleSnap: {
+        auto& o=config.angleSnapOptions;
+        changed |= ImGui::Checkbox("左右の角度を固定",&o.lockYaw);
+        changed |= ImGui::Checkbox("上下の角度を固定",&o.lockPitch);
+        ImGui::BeginDisabled();
+        ImGui::Checkbox("左右をスナップ",&o.snapYaw);
+        ImGui::Checkbox("上下をスナップ",&o.snapPitch);
+        ImGui::SliderFloat("左右の刻み(度)",&o.yawStep,1,90,"%.1f");
+        ImGui::SliderFloat("上下の刻み(度)",&o.pitchStep,1,90,"%.1f");
+        ImGui::Checkbox("カメラ機能中もスナップ",&o.snapWhileCameraFeature);
+        ImGui::EndDisabled();
+        ImGui::TextWrapped("初期は無効。LLの変更可能なマウス入力(dx/dy)で左右・上下の軸を固定します。");
+        ImGui::TextDisabled("このSDKでは回転状態へ安全に書き込む公開経路が無いため、角度の刻みスナップは未対応です。ネイティブフックは追加しません。");
+        break;
+    }
+    case Feature::ToggleSneakSprint: {
+        auto& o=config.toggleSneakSprintOptions;
+        changed |= ImGui::Checkbox("スニーク切替を有効",&o.sneakEnabled);
+        changed |= ImGui::Checkbox("ダッシュ切替を有効",&o.sprintEnabled);
+        ImGui::SetNextItemWidth(100.f);
+        int sneakKey=o.sneakToggleKey;
+        if(ImGui::InputInt("スニーク切替キー",&sneakKey)) {o.sneakToggleKey=std::clamp(sneakKey,0,255);changed=true;}
+        ImGui::SetNextItemWidth(100.f);
+        int sprintKey=o.sprintToggleKey;
+        if(ImGui::InputInt("ダッシュ切替キー",&sprintKey)) {o.sprintToggleKey=std::clamp(sprintKey,0,255);changed=true;}
+        changed |= modifierSetting("スニーク修飾キー##toggle",o.sneakModifiers);
+        changed |= modifierSetting("ダッシュ修飾キー##toggle",o.sprintModifiers);
+        ImGui::TextWrapped("初期は無効。設定したキーを押すたびにスニーク/ダッシュを切り替えます。実際のShift/Ctrl操作・GUI・フォーカス喪失・ワールド変更で解除します。");
+        break;
+    }
+    case Feature::DebugScreen: {
+        auto& o=config.informationOptions.debugScreen;
+        ImGui::TextWrapped("追加の診断HUD。LLが公開する値だけを表示し、取得できない値は「取得不可」と明示します。");
+        changed |= ImGui::Checkbox("クライアント性能",&o.clientPerformance);
+        changed |= ImGui::Checkbox("サーバー性能 (観測値)",&o.serverPerformance);
+        changed |= ImGui::Checkbox("見ている対象",&o.lookingAt);
+        changed |= ImGui::Checkbox("ワールド診断",&o.worldDiagnostics);
+        changed |= ImGui::Checkbox("取得不可の項目も表示",&o.showUnavailable);
+        changed |= ImGui::SliderFloat("HUD X",&o.x,0,4096);
+        changed |= ImGui::SliderFloat("HUD Y",&o.y,0,2160);
+        changed |= ImGui::SliderFloat("HUD倍率",&o.scale,.5f,3);
+        auto color=colorFloats(o.textColor);
+        if(ImGui::ColorEdit4("文字色##debug",color.data())){o.textColor=packedAbgr(color);changed=true;}
+        ImGui::TextDisabled("サーバーのヒープ・チャンク数はクライアントSDKでは公開されません");
+        break;
+    }
     default:
         ImGui::TextDisabled("26.60ではこの機能を準備できません");
         break;
@@ -829,6 +973,7 @@ void drawHudSettings(RuntimeConfig& config, bool& changed, int& selected) {
     changed |= ImGui::Checkbox("装備の耐久値HUDを表示", &o.durabilityHud);
     changed |= ImGui::Checkbox("オフハンドHUDを表示", &player.offhandHud);
     changed |= ImGui::Checkbox("満腹度HUDを表示", &player.foodHud);
+    changed |= ImGui::Checkbox("状態効果タイマーを表示", &config.effectTimer);
     changed |= ImGui::Checkbox("チャンク情報HUDを表示", &config.chunkBorder.showHud);
     ImGui::Spacing();
     ImGui::SeparatorText("詳細設定");
@@ -881,13 +1026,24 @@ void drawHudSettings(RuntimeConfig& config, bool& changed, int& selected) {
             changed |= ImGui::SliderFloat("オフハンド倍率", &player.offhandScale,.5f,3);
         }
     }
-    if(section("満腹度HUD", "Food Hunger Saturation 隠し満腹度 消耗度")) {
+    if(section("満腹度HUD", "Food Hunger Saturation 隠し満腹度 消耗度 手持ちの食べ物")) {
         ImGui::TextDisabled("未確認の値は「不明」と表示");
-        if(ImGui::IsItemHovered())ImGui::SetTooltip("隠し満腹度は値の変化を確認するまで不明です。消耗度は未対応です");
+        if(ImGui::IsItemHovered())ImGui::SetTooltip("隠し満腹度・消耗度は値の変化を確認するまで不明です。手持ちの食べ物はSDKの栄養値から回復量を表示します");
         if(ImGui::CollapsingHeader("満腹度HUDの位置")) {
             changed |= ImGui::SliderFloat("満腹度X", &player.foodX,0,4096);
             changed |= ImGui::SliderFloat("満腹度Y", &player.foodY,0,2160);
             changed |= ImGui::SliderFloat("満腹度倍率", &player.foodScale,.5f,3);
+        }
+    }
+    if(section("状態効果HUD", "EffectTimer Potion Effects 残り時間 効果")) {
+        auto& e=o.effectTimer;
+        ImGui::TextDisabled("アクティブな効果はSDKのgetAllEffects()から取得");
+        changed |= ImGui::Checkbox("残り時間を表示",&e.showRemaining);
+        changed |= ImGui::Checkbox("効果レベルを表示",&e.showAmplifier);
+        if(ImGui::CollapsingHeader("状態効果HUDの位置")) {
+            changed |= ImGui::SliderFloat("効果X", &e.x,0,4096);
+            changed |= ImGui::SliderFloat("効果Y", &e.y,0,2160);
+            changed |= ImGui::SliderFloat("効果倍率", &e.scale,.5f,3);
         }
     }
     if(section("チャンク情報HUD", "Chunks ChunkBorders チャンク座標 高さ")) {
@@ -999,9 +1155,11 @@ void drawLegacyPraxis(void* context) noexcept {
         pageButton(-13, "ブロック比較");
         pageButton(-7, "地図");
         pageButton(-6, "設計図");
+        pageButton(-16, "死亡履歴");
         ImGui::Spacing();
         ImGui::TextDisabled("ツール");
         pageButton(-11, "カメラ");
+        pageButton(-15, "デバッグ");
         pageButton(-14, "互換性");
         ImGui::Spacing();
         ImGui::TextDisabled("設定");
@@ -1102,6 +1260,54 @@ void drawLegacyPraxis(void* context) noexcept {
                 if(ImGui::Button("基準を消去"))reference.reset();
             }
             ImGui::TextDisabled("対象の更新: F10を閉じて開き直す");
+        } else if (selected == -15) {
+            ImGui::TextUnformatted("デバッグ");
+            ImGui::SeparatorText("LL公開の診断値");
+            auto sample=informationSnapshot();
+            auto const options=config.informationOptions.debugScreen;
+            if(!sample->valid) {
+                ImGui::TextDisabled("ワールド内で情報を収集します。");
+            } else {
+                auto lines=debugScreenLines(sample->debug,options);
+                if(lines.empty())ImGui::TextDisabled("表示する診断項目がありません。");
+                for(auto const& line:lines)ImGui::TextUnformatted(line.c_str());
+            }
+            ImGui::SeparatorText("未公開の値");
+            ImGui::TextWrapped("サーバーのヒープ量・チャンク数・正確なMSPT/TPSはクライアントSDKでは取得できません。「観測」と表示された値は、クライアントが受信したサーバーティックIDの実時間差分です。");
+            ImGui::TextDisabled("署名走査・オフセット解析・メモリスキャンは行いません。");
+            ImGui::TextDisabled("デバッグHUDの表示項目は「機能」→DebugScreenで設定します。");
+        } else if (selected == -16) {
+            ImGui::TextUnformatted("死亡履歴");
+            ImGui::SeparatorText("専用ログ");
+            auto log=deathLogSnapshot();
+            ImGui::TextDisabled("最大64件。新しい順。地図の最後の死亡地点マーカーは維持されます。");
+            ImGui::TextWrapped("状態: %s",log->status.c_str());
+            if(log->session.valid())
+                ImGui::TextDisabled("%s",log->persistent?"永続ワールド":"セッション限定");
+            if(log->entries.empty())ImGui::TextUnformatted("記録はまだありません。");
+            else {
+                if(ImGui::Button("クリップボードへコピー")) {
+                    std::string lines;
+                    for(auto const& row:log->entries) {
+                        char line[160]{};
+                        std::snprintf(line,sizeof(line),"%llu, %d, %.2f, %.2f, %.2f\n",
+                            static_cast<unsigned long long>(row.unixSeconds),row.dimension,row.x,row.y,row.z);
+                        lines+=line;
+                    }
+                    ImGui::SetClipboardText(lines.c_str());
+                }
+                ImGui::SameLine();
+                if(ImGui::Button("履歴を消去")) (void)clearDeathLog();
+                for(auto const& row:log->entries) {
+                    char date[40]="日時不明";
+                    std::time_t when=static_cast<std::time_t>(row.unixSeconds);
+                    std::tm local{};
+                    if(localtime_s(&local,&when)==0)
+                        std::strftime(date,sizeof(date),"%Y-%m-%d %H:%M:%S",&local);
+                    ImGui::Text("%s  X %.1f Y %.1f Z %.1f  [次元%d]",
+                        date,row.x,row.y,row.z,row.dimension);
+                }
+            }
         } else if (selected == -2) {
             ImGui::TextUnformatted("表示設定");
             ImGui::SeparatorText("フォント");
@@ -1158,6 +1364,10 @@ void drawLegacyPraxis(void* context) noexcept {
             ImGui::Separator();
             disabledTextWrapped("設計図機能はPraxisCompanionには含まれていません。");
             ImGui::TextWrapped("LHoloを導入している場合はLHolo側のメニューから設計図を操作してください。");
+            ImGui::SeparatorText("MaterialCollector の互換性");
+            ImGui::TextWrapped("LHoloは設計図の材料一覧を内部モジュールでのみ保持しており、公開された材料一覧APIやエクスポートを提供していません。");
+            ImGui::TextWrapped("そのため、重複した設計図データを作らずに材料一覧をPraxisへ取り込むことはできません。このサブ機能は未実装として明示します。");
+            ImGui::TextDisabled("既存のHUD配置連携 (設計図・材料パネル) はLHoloの公開APIで引き続き利用できます。");
         } else if (selected == -7) {
             ImGui::TextUnformatted("地図");
             ImGui::Separator();
@@ -1392,6 +1602,8 @@ bool hudNeeded() noexcept {
     return frameHudNeeded.load(std::memory_order_acquire)
         || shulkerPreviewNeeded()
         || informationHudNeeded()
+        || effectHudNeeded()
+        || debugHudNeeded()
         || foodHudNeeded()
         || mapHudNeeded();
 }
@@ -1462,6 +1674,8 @@ void drawChunkHudContent(void* context) noexcept {
         if (sharedFontRequired.load(std::memory_order_acquire) && !sharedLegacyUiFontReady(context)) return;
         LegacyUiScope legacyScope;
         if (informationHudNeeded()) drawInformationHud(context);
+        if (effectHudNeeded()) drawEffectHud(context);
+        if (debugHudNeeded()) drawDebugHud(context);
         if (foodHudNeeded()) drawFoodHud(context);
         drawChunkHud(context);
         if (shulkerPreviewNeeded()) drawShulkerPreviewContent(context);

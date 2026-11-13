@@ -15,12 +15,14 @@ inline constexpr char const* featureDisplayName(char const* stable) noexcept {
         {"ToolProtection","道具の破損防止"},{"WeaponSwitch","武器の自動選択"},
         {"HandRestock","手持ちの自動補充"},{"InventorySort","所持品の整理"},
         {"InventoryTransfer","ホイール・ドラッグ移動"},
-        {"AntiEffect","画面効果の抑制"},{"Freelook","フリールック"},{"FreeCamera","フリーカメラ"},{"OffhandSwap","オフハンド持ち替え"}};
+        {"AntiEffect","画面効果の抑制"},{"Freelook","フリールック"},{"FreeCamera","フリーカメラ"},{"OffhandSwap","オフハンド持ち替え"},
+        {"AutoTool","自動ツール選択"},{"EffectTimer","状態効果タイマー"},{"AngleSnap","角度スナップ"},
+        {"ToggleSneakSprint","スニーク・ダッシュ切替"},{"DebugScreen","デバッグ情報"}};
     for(auto const& [key,label]:names)if(std::string_view(stable)==key)return label;
     return stable;
 }
-inline constexpr std::array<char const*,6> hudDisplayNames{
-    "情報","装備の耐久値","オフハンド","満腹度","チャンク情報","所持品"};
+inline constexpr std::array<char const*,7> hudDisplayNames{
+    "情報","装備の耐久値","オフハンド","満腹度","チャンク情報","所持品","状態効果"};
 inline constexpr std::array<char const*,11> renderPassDisplayNames{
     "Entities","Dropped items","Block entities","HUD","Particles","Sky",
     "Weather","Portal overlay","Fire overlay","Lightning","Fog"};
@@ -39,10 +41,26 @@ inline std::string displayValueJa(std::string_view value) {
     for(auto const& [key,label]:names)if(value==key)return label;
     return std::string(value);
 }
-inline std::array<std::string,3> foodHudLinesJa(FoodSnapshot const& food) {
-    return {"満腹度 (端末): "+displayValueJa(foodText(food.hunger,20)),
-        "隠し満腹度 (端末): "+displayValueJa(foodText(food.saturation,20)),
-        "消耗度: "+displayValueJa(foodText(food.exhaustion,5))};
+inline std::vector<std::string> foodHudLinesJa(FoodSnapshot const& food) {
+    auto linesArray=foodHudLines(food);
+    std::vector<std::string> lines(linesArray.begin(),linesArray.end());
+    lines[0]="満腹度 (端末): "+displayValueJa(foodText(food.hunger,20));
+    lines[1]="隠し満腹度 (端末): "+displayValueJa(foodText(food.saturation,20));
+    lines[2]="消耗度: "+displayValueJa(foodText(food.exhaustion,5));
+    if(lines[3].starts_with("Held food: ")) {
+        auto body=lines[3].substr(11);
+        if(body.find("restoration unavailable")!=std::string::npos)
+            lines[3]="手持ちの食べ物: 回復量不明";
+        else {
+            lines[3].replace(0,11,"手持ちの食べ物: ");
+            auto comma=lines[3].find(", +");
+            if(comma!=std::string::npos)lines[3].replace(comma,3,"、+");
+            if(auto at=lines[3].find(" hunger");at!=std::string::npos)lines[3].replace(at,7," 満腹度");
+            if(auto at=lines[3].find(" saturation");at!=std::string::npos)lines[3].replace(at,11," 隠し満腹度");
+        }
+    } else lines[3].clear();
+    lines[4]=food.held.present&&!food.held.name.empty()?"名前: "+food.held.name:"";
+    return lines;
 }
 inline std::vector<std::string> informationLinesJa(InformationSnapshot const& sample,InformationOptions const& options) {
     auto lines=formatInformationLines(sample,options);
