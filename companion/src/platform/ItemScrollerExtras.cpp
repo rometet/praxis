@@ -252,11 +252,11 @@ void tick(ContainerManagerController& manager, Context const& c) {
     auto retained = job;
     auto& op = *retained;
     auto s = settings();
-    if (!s->on(Feature::InventorySort) && !s->on(Feature::InventoryTransfer)) {
-        stop("ItemScroller feature disabled");
+    if (!s->itemScroller.recipeFavorites) {
+        stop("Recipe favorites disabled");
         return;
     }
-    if (!s->itemScroller.recipeFavorites || op.generation != worldGeneration.load()
+    if (op.generation != worldGeneration.load()
         || op.screen.lock() != c.screen || op.view != c.view || op.grid != c.grid) {
         stop("Crafting screen or settings changed");
         return;
@@ -335,7 +335,7 @@ void onFrame(ll::event::AfterUIRenderEvent& event) {
     }
     observe(*c->manager, *c);
     auto s = settings();
-    if (!s->on(Feature::InventorySort) && !s->on(Feature::InventoryTransfer)) return;
+    if (!s->itemScroller.recipeFavorites && !s->itemScroller.tradeFavorites) return;
     if (job) {
         tick(*c->manager, *c);
         return;
