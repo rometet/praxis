@@ -145,6 +145,12 @@ void toggleTick(LocalPlayer& player) {
             return;
         }
         auto const& o = s->toggleSneakSprint;
+        // A swallowed key-up (focus changes or other listeners) must not leave
+        // the edge detector permanently latched. Win32 state is only sampled.
+        toggles.releaseIfPhysicallyUp(o.sneakToggleKey,
+            (GetAsyncKeyState(o.sneakToggleKey) & 0x8000) != 0);
+        toggles.releaseIfPhysicallyUp(o.sprintToggleKey,
+            (GetAsyncKeyState(o.sprintToggleKey) & 0x8000) != 0);
         if (o.sneakEnabled) {
             if (toggles.sneak && !player.isSneaking()) {
                 player.setSneaking(true);
@@ -234,15 +240,23 @@ void key(ll::event::KeyInputEvent& event) {
             toggles.manualOverride(false, true);
         }
     }
-    if (!event.isDown() || event.isCancelled() || !gameplayAllowed()) return;
+    if (!event.isDown()) {
+        // Preserve key-up edges even if a GUI consumed the key-down event.
+        std::lock_guard lock(stateMutex);
+        toggles.consumeKeyEdge(code, false, GetTickCount64());
+        return;
+    }
+    if (event.isCancelled() || !gameplayAllowed()) return;
     auto const& o = s->toggleSneakSprint;
     auto const modifiers = currentModifiers();
     std::lock_guard lock(stateMutex);
     if (o.sneakEnabled && code == o.sneakToggleKey && modifiersMatch(o.sneakModifiers, modifiers)) {
-        toggles.sneak = !toggles.sneak;
+        if (toggles.consumeKeyEdge(code, true, GetTickCount64()))
+            toggles.sneak = !toggles.sneak;
         event.cancel();
     } else if (o.sprintEnabled && code == o.sprintToggleKey && modifiersMatch(o.sprintModifiers, modifiers)) {
-        toggles.sprint = !toggles.sprint;
+        if (toggles.consumeKeyEdge(code, true, GetTickCount64()))
+            toggles.sprint = !toggles.sprint;
         event.cancel();
     }
 }

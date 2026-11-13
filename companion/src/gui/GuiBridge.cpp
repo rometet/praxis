@@ -315,6 +315,97 @@ struct ToolPercentLabelProbe {
 } toolPercentLabelProbe;
 #endif
 void drawPreviewSettings(RuntimeConfig& config, bool& changed);
+void drawItemScrollerPage(RuntimeConfig& config, bool& changed) {
+    auto& sc=config.itemScrollerOptions;
+    ImGui::TextUnformatted("ItemScroller / Recipe & Trade Favorites");
+    ImGui::SeparatorText("最初に設定する");
+    ImGui::TextWrapped("1. この画面でレシピ補助をON、適用キーを登録してください。");
+    ImGui::TextWrapped("2. サバイバルで作業台を開き、作りたいレシピの材料を並べます。");
+    ImGui::TextWrapped("3. F10からこのページを開き、観測したレシピをお気に入りに保存します。");
+    ImGui::TextWrapped("4. F10を閉じ、作業台の材料を空にして、設定キーを2回（押して離す）押します。");
+    ImGui::TextDisabled("クリエイティブ/観戦、GUIが開いている間はレシピ適用しません。交易は記録と表示のみです。");
+    if (!sc.recipeFavorites || sc.applyKey == 0) {
+        if (ImGui::Button("簡単セットアップ（レシピON・Jキー）")) {
+            sc.recipeFavorites = true;
+            if (sc.applyKey == 0) sc.applyKey = 'J';
+            sc.requireConfirmation = true;
+            changed = true;
+        }
+    }
+    ImGui::Text("現在の適用キー: %s (VK %d)", keyName(sc.applyKey).c_str(), sc.applyKey);
+    if (sc.applyKey == 0) {
+        ImGui::TextColored({1.0f, .70f, .25f, 1.f},
+            "適用キーが未設定です。「簡単セットアップ」を押してください。");
+    }
+    ImGui::SeparatorText("お気に入りの登録・編集");
+        ImGui::SeparatorText("レシピ・交易のお気に入り");
+
+        changed |= ImGui::Checkbox("レシピのお気に入りとクラフト補助",&sc.recipeFavorites);
+        changed |= ImGui::Checkbox("交易のお気に入り",&sc.tradeFavorites);
+        changed |= ImGui::Checkbox("適用前に確認を求める",&sc.requireConfirmation);
+        ImGui::SetNextItemWidth(100.f);
+        int applyKey=sc.applyKey;
+        if(ImGui::InputInt("レシピ適用キー",&applyKey)){sc.applyKey=std::clamp(applyKey,0,255);changed=true;}
+        ImGui::TextWrapped("状態: %s",itemScrollerStatus().c_str());
+        ImGui::TextDisabled("クラフト画面を開いた状態で「適用キー」を押します。初期は2回押しで確定。");
+        auto observed=itemScrollerObservation();
+        if(observed->recipeValid) {
+            ImGui::TextDisabled("最後に観測したクラフト枠 (%s)",observed->source.c_str());
+            ImGui::BeginChild("##observed_grid",{0.0f,86.0f},ImGuiChildFlags_Borders);
+            for(int i=0;i<9;++i) {
+                if(i%3)ImGui::SameLine();
+                std::string label=observed->grid[i].empty()?"(空)":observed->grid[i];
+                if(label.size()>22)label.resize(22);
+                ImGui::TextDisabled("%s",label.c_str());
+            }
+            ImGui::EndChild();
+            static char recipeName[65]{};
+            if(recipeName[0]==0)std::snprintf(recipeName,sizeof(recipeName),"お気に入り%u",static_cast<unsigned>(sc.selectedRecipe+1));
+            ImGui::SetNextItemWidth(-1.f);
+            ImGui::InputText("##recipe_name",recipeName,sizeof(recipeName));
+            if(ImGui::Button("現在のクラフト枠を保存")) {
+                auto& recipe=sc.recipes[sc.selectedRecipe];
+                recipe={};
+                recipe.name=recipeName;
+                recipe.result=observed->result;
+                recipe.grid=observed->grid;
+                changed=true;
+            }
+            ImGui::SameLine();
+            if(ImGui::Button("選択を消去")) {sc.recipes[sc.selectedRecipe]={};changed=true;}
+        } else ImGui::TextDisabled("クラフト画面を開くと現在の枠を保存できます。");
+        int selected=static_cast<int>(sc.selectedRecipe);
+        ImGui::SetNextItemWidth(-1.f);
+        if(ImGui::BeginCombo("##recipe_favorites",emptyRecipe(sc.recipes[sc.selectedRecipe])?"(未選択)":sc.recipes[sc.selectedRecipe].name.c_str())) {
+            for(int i=0;i<static_cast<int>(recipeFavoriteLimit);++i) {
+                std::string label=emptyRecipe(sc.recipes[i])?"(空)":sc.recipes[i].name;
+                ImGui::PushID(i);
+                if(ImGui::Selectable(label.c_str(),selected==i)) {selected=i;sc.selectedRecipe=static_cast<std::size_t>(i);changed=true;}
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        if(observed->tradeValid) {
+            ImGui::TextDisabled("最後の交易: %s -> %s",observed->tradeBuyA.c_str(),observed->tradeSell.c_str());
+            if(ImGui::Button("現在の交易を保存")) {
+                for(auto& trade:sc.trades)
+                    if(trade.sellItem.empty()) {
+                        trade={observed->tradeSell,observed->tradeBuyA,observed->tradeBuyB,observed->tradeCountA,observed->tradeCountB};
+                        changed=true;break;
+                    }
+            }
+            ImGui::TextDisabled("交易の選択操作は公開SDKに書き込み経路がなく、お気に入りの記録・確認までです。");
+        }
+        for(std::size_t i=0;i<tradeFavoriteLimit;++i) {
+            auto const& trade=sc.trades[i];
+            if(trade.sellItem.empty())continue;
+            std::string label=trade.sellItem+" <- "+trade.buyA;
+            if(!trade.buyB.empty())label+=" + "+trade.buyB;
+            if(ImGui::Selectable(label.c_str(),sc.selectedTrade==i)){sc.selectedTrade=i;changed=true;}
+        }
+        ImGui::TextWrapped("レシピ補助はクラフト枠と所持品を読み、一致する材料だけを1個ずつ通常のインベントリ操作で枠へ移します。既存の枠・不足・画面終了・応答失敗では開始せず、途中なら停止します。取引の自動実行は行いません。");
+}
+
 void drawDetails(RuntimeConfig& config, Feature feature, bool& changed) {
     switch (feature) {
     case Feature::AntiEffect: {
@@ -586,70 +677,7 @@ void drawDetails(RuntimeConfig& config, Feature feature, bool& changed) {
         exclusions("手持ちの除外",o.excludedInventory);
         exclusions("収納の除外",o.excludedStorage);
         ImGui::TextWrapped("試験機能・初期は無効。「キー割当」で整理の実行キーを設定します。ON/OFF用キーとは別です。所持品や収納の整理したい領域にカーソルを合わせて押します。SDKの識別名・個数・ID・カテゴリ・レア度順に並べます。固定・装備・作業・出力スロットは対象外。計画が上限を超える場合は実行しません。途中の内容変更・失敗・画面終了で停止します。");
-        ImGui::SeparatorText("レシピ・交易のお気に入り");
-        auto& sc=config.itemScrollerOptions;
-        changed |= ImGui::Checkbox("レシピのお気に入りとクラフト補助",&sc.recipeFavorites);
-        changed |= ImGui::Checkbox("交易のお気に入り",&sc.tradeFavorites);
-        changed |= ImGui::Checkbox("適用前に確認を求める",&sc.requireConfirmation);
-        ImGui::SetNextItemWidth(100.f);
-        int applyKey=sc.applyKey;
-        if(ImGui::InputInt("レシピ適用キー",&applyKey)){sc.applyKey=std::clamp(applyKey,0,255);changed=true;}
-        ImGui::TextWrapped("状態: %s",itemScrollerStatus().c_str());
-        ImGui::TextDisabled("クラフト画面を開いた状態で「適用キー」を押します。初期は2回押しで確定。");
-        auto observed=itemScrollerObservation();
-        if(observed->recipeValid) {
-            ImGui::TextDisabled("最後に観測したクラフト枠 (%s)",observed->source.c_str());
-            ImGui::BeginChild("##observed_grid",{0.0f,86.0f},ImGuiChildFlags_Borders);
-            for(int i=0;i<9;++i) {
-                if(i%3)ImGui::SameLine();
-                std::string label=observed->grid[i].empty()?"(空)":observed->grid[i];
-                if(label.size()>22)label.resize(22);
-                ImGui::TextDisabled("%s",label.c_str());
-            }
-            ImGui::EndChild();
-            static char recipeName[65]{};
-            if(recipeName[0]==0)std::snprintf(recipeName,sizeof(recipeName),"お気に入り%u",static_cast<unsigned>(sc.selectedRecipe+1));
-            ImGui::SetNextItemWidth(-1.f);
-            ImGui::InputText("##recipe_name",recipeName,sizeof(recipeName));
-            if(ImGui::Button("現在のクラフト枠を保存")) {
-                auto& recipe=sc.recipes[sc.selectedRecipe];
-                recipe={};
-                recipe.name=recipeName;
-                recipe.result=observed->result;
-                recipe.grid=observed->grid;
-                changed=true;
-            }
-            ImGui::SameLine();
-            if(ImGui::Button("選択を消去")) {sc.recipes[sc.selectedRecipe]={};changed=true;}
-        } else ImGui::TextDisabled("クラフト画面を開くと現在の枠を保存できます。");
-        int selected=static_cast<int>(sc.selectedRecipe);
-        ImGui::SetNextItemWidth(-1.f);
-        if(ImGui::BeginCombo("##recipe_favorites",emptyRecipe(sc.recipes[sc.selectedRecipe])?"(未選択)":sc.recipes[sc.selectedRecipe].name.c_str())) {
-            for(int i=0;i<static_cast<int>(recipeFavoriteLimit);++i) {
-                std::string label=emptyRecipe(sc.recipes[i])?"(空)":sc.recipes[i].name;
-                if(ImGui::Selectable(label.c_str(),selected==i)) {selected=i;sc.selectedRecipe=static_cast<std::size_t>(i);changed=true;}
-            }
-            ImGui::EndCombo();
-        }
-        if(observed->tradeValid) {
-            ImGui::TextDisabled("最後の交易: %s -> %s",observed->tradeBuyA.c_str(),observed->tradeSell.c_str());
-            if(ImGui::Button("現在の交易を保存")) {
-                for(auto& trade:sc.trades)
-                    if(trade.sellItem.empty()) {
-                        trade={observed->tradeSell,observed->tradeBuyA,observed->tradeBuyB,observed->tradeCountA,observed->tradeCountB};
-                        changed=true;break;
-                    }
-            }
-            ImGui::TextDisabled("交易の選択操作は公開SDKに書き込み経路がなく、お気に入りの記録・確認までです。");
-        }
-        for(std::size_t i=0;i<tradeFavoriteLimit;++i) {
-            auto const& trade=sc.trades[i];
-            if(trade.sellItem.empty())continue;
-            std::string label=trade.sellItem+" <- "+trade.buyA;
-            if(!trade.buyB.empty())label+=" + "+trade.buyB;
-            if(ImGui::Selectable(label.c_str(),sc.selectedTrade==i)){sc.selectedTrade=i;changed=true;}
-        }
-        ImGui::TextWrapped("レシピ補助はクラフト枠と所持品を読み、一致する材料だけを1個ずつ通常のインベントリ操作で枠へ移します。既存の枠・不足・画面終了・応答失敗では開始せず、途中なら停止します。取引の自動実行は行いません。");
+        ImGui::TextDisabled("Recipe and trade favorites are in the ItemScroller sidebar page.");
         break;
     }
     case Feature::OffhandSwap: {
@@ -815,6 +843,11 @@ void drawDetails(RuntimeConfig& config, Feature feature, bool& changed) {
     }
     case Feature::AngleSnap: {
         auto& o=config.angleSnapOptions;
+        if (!o.lockYaw && !o.lockPitch) {
+            ImGui::TextColored({1.0f,.7f,.25f,1.f},
+                "左右・上下の固定が両方OFFです。このままでは機能が動作しません。");
+            if (ImGui::Button("左右の固定をONにする")) { o.lockYaw=true;changed=true; }
+        }
         changed |= ImGui::Checkbox("左右の角度を固定",&o.lockYaw);
         changed |= ImGui::Checkbox("上下の角度を固定",&o.lockPitch);
         ImGui::BeginDisabled();
@@ -830,6 +863,7 @@ void drawDetails(RuntimeConfig& config, Feature feature, bool& changed) {
     }
     case Feature::ToggleSneakSprint: {
         auto& o=config.toggleSneakSprintOptions;
+        ImGui::TextDisabled("1回押すごとに切り替え。キーの押しっぱなし・自動リピートは無視します。");
         changed |= ImGui::Checkbox("スニーク切替を有効",&o.sneakEnabled);
         changed |= ImGui::Checkbox("ダッシュ切替を有効",&o.sprintEnabled);
         ImGui::SetNextItemWidth(100.f);
@@ -1158,6 +1192,8 @@ void drawLegacyPraxis(void* context) noexcept {
         ImGui::TextDisabled("メイン");
         pageButton(-1, "機能");
         pageButton(-8, "HUD");
+        pageButton(-17, "AppleSkin");
+        pageButton(-18, "ItemScroller");
         pageButton(-12, "リソパ");
         pageButton(-13, "ブロック比較");
         pageButton(-7, "地図");
@@ -1283,6 +1319,25 @@ void drawLegacyPraxis(void* context) noexcept {
             ImGui::TextWrapped("サーバーのヒープ量・チャンク数・正確なMSPT/TPSはクライアントSDKでは取得できません。「観測」と表示された値は、クライアントが受信したサーバーティックIDの実時間差分です。");
             ImGui::TextDisabled("署名走査・オフセット解析・メモリスキャンは行いません。");
             ImGui::TextDisabled("デバッグHUDの表示項目は「機能」→DebugScreenで設定します。");
+        } else if (selected == -17) {
+            ImGui::TextUnformatted("AppleSkin / 満腹度 HUD");
+            ImGui::TextWrapped("AppleSkin 相当の食料回復予測と満腹度・隠し満腹度・疲労度を表示します。");
+            auto& food = config.informationOptions.playerHud;
+            changed |= ImGui::Checkbox("AppleSkin（満腹度HUD）を表示する", &food.foodHud);
+            if (!food.foodHud) ImGui::TextColored({1.0f,.70f,.25f,1.f},
+                "現在はOFFです。上のチェックをONにしてください。");
+            changed |= ImGui::SliderFloat("表示位置 X", &food.foodX, 0, 4096);
+            changed |= ImGui::SliderFloat("表示位置 Y", &food.foodY, 0, 2160);
+            changed |= ImGui::SliderFloat("表示倍率", &food.foodScale, .5f, 3.f);
+            ImGui::SeparatorText("現在の観測値");
+            auto snapshot = informationSnapshot();
+            if (snapshot && informationCurrent(*snapshot,worldGeneration.load(),GetTickCount64())) {
+                auto lines = foodHudLinesJa(snapshot->food);
+                for (auto const& line : lines) if (!line.empty()) ImGui::TextWrapped("%s",line.c_str());
+            } else ImGui::TextDisabled("ワールドに入ると、公開SDKから取得可能な値を表示します。");
+            ImGui::TextDisabled("バニラの満腹度アイコンの上書きではなく、独立したテキストHUDです。");
+        } else if (selected == -18) {
+            drawItemScrollerPage(config, changed);
         } else if (selected == -16) {
             ImGui::TextUnformatted("死亡履歴");
             ImGui::SeparatorText("専用ログ");

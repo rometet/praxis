@@ -87,6 +87,16 @@ int main() {
         states.sneak = states.sprint = true;
         states.manualOverride(true, false);
         check(!states.sneak && states.sprint, "manual sneak press returns sneak control to player");
+        check(states.consumeKeyEdge('V', true, 1000), "first Down toggles on");
+        check(!states.consumeKeyEdge('V', true, 1100), "repeated Down is ignored");
+        check(!states.consumeKeyEdge('V', false, 1120), "KeyUp is not a toggle");
+        check(!states.consumeKeyEdge('V', true, 1140), "spurious early Down is debounced");
+        check(!states.consumeKeyEdge('V', false, 1180), "second KeyUp releases the latch");
+        check(states.consumeKeyEdge('V', true, 1400), "next physical press toggles");
+        states.releaseIfPhysicallyUp('V', false);
+        check(states.consumeKeyEdge('V', true, 1700), "physical key-up recovers missed KeyUp");
+        states.clear();
+        check(states.consumeKeyEdge('V', true, 2000), "world/GUI reset clears key latch");
 
         FoodSnapshot food;
         food.hunger = {10.0f, FoodSource::ClientAttribute};
