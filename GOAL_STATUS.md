@@ -55,6 +55,7 @@ Boundary: no push, no release, no live installation or Minecraft process changes
 - `51eff38` fix(itemscroller): gate recipe assist on its own favorites toggle
 - `0c3bae6` test(deathlog): cover replace-on-load and item scroller gating
 - `b0c5629` fix(deathlog): record client deaths from event or alive transition
+- `c45a91f` feat(gui): list saved ItemScroller trade favorites
 
 ## Verification run in this clone
 
