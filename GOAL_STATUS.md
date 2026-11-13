@@ -46,6 +46,13 @@ Boundary: no push, no release, no live installation or Minecraft process changes
 - Existing profile `keybinds`/`keybindModifiers` arrays only grow; unknown slots
   stay opaque; no retired slot is reused.
 
+## Branch / commits (not pushed)
+
+- `5ee6fc5` feat(core): add Tsukuyomi utility policies and appended feature slots
+- `7c412a8` feat: integrate Tsukuyomi utilities through LeviLamina public events
+- `0eaab05` docs: record Tsukuyomi feature status, tests and limitations
+- `3726b62` fix(deathlog): replace world log on async load and preserve dimension entries
+
 ## Verification run in this clone
 
 Commands (from `companion/`):
