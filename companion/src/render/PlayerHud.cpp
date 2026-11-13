@@ -1,4 +1,5 @@
 #include "render/PlayerHud.h"
+#include "core/FoodOutlinePolicy.h"
 #include "render/InformationHud.h"
 #include "render/ShulkerPreview.h"
 #include "runtime/InformationRuntime.h"
@@ -11,6 +12,22 @@
 #include "mc/client/gui/GuiData.h"
 #include "mc/client/gui/ScreenSizeData.h"
 #include "mc/client/gui/screens/ScreenView.h"
+#include "mc/client/gui/controls/UIControl.h"
+#include "mc/client/gui/controls/VisualTree.h"
+#include "mc/deps/core/file/PathView.h"
+#include "resourcepacks/WorldPackParticipant.h"
+#include "mc/client/renderer/TextureGroup.h"
+#include "mc/resources/ResourcePackManager.h"
+#include "mc/deps/core/image/Image.h"
+#include "mc/deps/core_graphics/ImageBuffer.h"
+#include "mc/deps/core/math/AlphaUsage.h"
+#include "mc/deps/core/image/ImageFormat.h"
+#include "mc/deps/core/image/ImageUsage.h"
+#include "mc/deps/core/resource/ResourceLocation.h"
+#include "mc/deps/minecraft_renderer/renderer/BedrockTextureData.h"
+#include "mc/deps/minecraft_renderer/renderer/IsMissingTexture.h"
+#include "mc/deps/minecraft_renderer/renderer/TexturePtr.h"
+#include "mc/deps/core/string/HashedString.h"
 #include "mc/client/gui/Font.h"
 #include "mc/client/gui/FontHandle.h"
 #include "mc/client/gui/TextMeasureData.h"
@@ -23,8 +40,15 @@
 #include "mc/world/item/Item.h"
 #include "mc/deps/input/RectangleArea.h"
 #include "mc/deps/core/math/Color.h"
+#include "resourcepacks/LocalPngDecodeWin.h"
+#ifdef small
+#undef small
+#endif
 #endif
 #include <Windows.h>
+#include <algorithm>
+#include <optional>
+#include <array>
 #include <imgui.h>
 
 namespace praxis::companion {
@@ -42,8 +66,9 @@ void drawFoodHud(void* context) noexcept {
         auto display=ImGui::GetIO().DisplaySize;
         if(!std::isfinite(display.x)||!std::isfinite(display.y)||display.x<=0||display.y<=0){ImGui::SetCurrentContext(previous);return;}
         auto lines=foodHudLinesJa(sample->food);
+        lines.erase(std::remove_if(lines.begin(),lines.end(),[](std::string const& line){return line.empty();}),lines.end());
         float width=0;for(auto const& line:lines)width=std::max(width,ImGui::CalcTextSize(line.c_str()).x*h.foodScale);
-        float height=3*ImGui::GetTextLineHeightWithSpacing()*h.foodScale;
+        float height=static_cast<float>(lines.size())*ImGui::GetTextLineHeightWithSpacing()*h.foodScale;
         auto padding=ImGui::GetStyle().WindowPadding;width+=padding.x*2;height+=padding.y*2;
         std::array obstacles{informationHudBounds(),durabilityHudBounds(),paperDollBounds(sample->logicalWidth/display.x,sample->logicalHeight/display.y)};
         auto placed=placeHud(transformHud({h.foodX,h.foodY,width,height},transform,display.x,display.y),display.x,display.y,obstacles);
@@ -60,6 +85,151 @@ void drawFoodHud(void* context) noexcept {
     ImGui::SetCurrentContext(previous);
 }
 #ifndef PRAXIS_FOOD_HUD_TEST
+namespace {
+// Vanilla's hunger control is the only stable alignment source. If an active
+// UI pack moves or removes it, do NOT invent a screen-center coordinate.
+struct HungerBarAnchor { float x{}, y{}; };
+std::optional<HungerBarAnchor> locateVanillaHunger(ScreenView& view) {
+    auto const screen=view.getScreenName();
+    if(screen!="hud_screen" && screen!="in_game_play_screen")return {};
+    auto* tree=view.mVisualTree.get();
+    if(!tree)return {};
+    auto node=tree->getControlByName("hunger_rend",true);
+    if(!node || node->mCachedPositionDirty)return {};
+    auto const xy=*node->mCachedPosition;
+    if(!std::isfinite(xy.x)||!std::isfinite(xy.y)||xy.x<0||xy.y<0)return {};
+    return HungerBarAnchor{xy.x,xy.y};
+}
+using HungerFill=foodshape::Unit;
+HungerFill portion(float value,int index) {
+    return foodshape::units(value,index);
+}
+// Five cached runtime texture variants, recreated after pack reload. These are
+// contours of the resource pack's actual hunger_background alpha silhouette.
+struct FoodOutlines {
+    struct Variant {
+        ResourceLocation const* path{};
+        foodshape::Portion part{};
+        foodshape::Rgba tint{};
+    };
+    std::array<Variant,5> variants{};
+    std::uint64_t epoch{};
+    bool ready{},failed{};
+};
+ResourceLocation const* foodOutlineLocation(char const* name) {
+    return new ResourceLocation(Core::PathView(name),ResourceFileSystem::Raw);
+}
+FoodOutlines& nativeFoodOutlines() {
+    static auto* set=new FoodOutlines{{{
+        {foodOutlineLocation("praxis/saturation/current"),foodshape::Portion::Full,{242,194,58,255}},
+        {foodOutlineLocation("praxis/saturation/current_half"),foodshape::Portion::RightHalf,{242,194,58,255}},
+        {foodOutlineLocation("praxis/saturation/gain"),foodshape::Portion::Full,{255,241,184,255}},
+        {foodOutlineLocation("praxis/saturation/gain_half"),foodshape::Portion::RightHalf,{255,241,184,255}},
+        {foodOutlineLocation("praxis/saturation/gain_left"),foodshape::Portion::LeftHalf,{255,241,184,255}}
+    }}};
+    return *set;
+}
+bool updateFoodOutlines(MinecraftUIRenderContext& ui) {
+    auto const epoch=packs::praxisWorldParticipant().resourceEpoch();
+    auto& set=nativeFoodOutlines();
+    if(set.epoch!=epoch) {
+        set.epoch=epoch;set.ready=false;set.failed=false;
+    }
+    if(set.ready)return true;
+    if(set.failed)return false;
+    auto group=ui.mClient.getTextureGroup();
+    if(!group){return false;}
+    std::string bytes;
+    constexpr std::array<std::string,1> exts{".png"};
+    if(!ui.mClient.getResourcePackManager().load(
+         ResourceLocation(Core::PathView("textures/ui/hunger_background")),
+         bytes,exts
+    )||bytes.empty()) {set.failed=true;return false;}
+    auto image=packs::decodeLocalPngWic(bytes);
+    if(!image.valid()||image.width>64||image.height>64) {
+        set.failed=true;return false;
+    }
+    try {
+        for(auto const& style:set.variants) {
+            auto rgba=foodshape::contour(
+                std::span<std::uint8_t const>(image.pixels),
+                image.width,image.height,style.tint,style.part);
+            if(rgba.empty()) {set.failed=true;return false;}
+            mce::Image native(image.width,image.height,mce::ImageFormat::RGBA8Unorm,mce::ImageUsage::SRGB);
+            native.mAlphaUsage=mce::AlphaUsage::Transparent;
+            native.setRawImage(mce::Blob(rgba.data(),rgba.size()));
+            group->uploadTexture(*style.path,cg::ImageBuffer(std::move(native)));
+        }
+        set.ready=true;
+        return true;
+    }catch(...) {set.failed=true;return false;}
+}
+void nativeFoodOutline(MinecraftUIRenderContext& ui,
+                       FoodOutlines::Variant const& variant,float x,float y) {
+    auto pointer=ui.getTexture(*variant.path,false);
+    auto const& data=pointer.mClientTexture;
+    if(!data||data->mIsMissingTexture==IsMissingTexture::Yes)return;
+    ui.drawImage(data->mClientTexture,{x,y},{9.f,9.f},{0.f,0.f},{1.f,1.f},false);
+    ui.flushImages(mce::Color{1.f,1.f,1.f},1.f,HashedString{"ui_textured_and_glcolor"});
+}
+void drawNativeFoodPreview(MinecraftUIRenderContext& ui,char const* path,
+                           std::vector<glm::vec2> const& slots,float opacity) {
+    if(slots.empty())return;
+    auto pointer=ui.getTexture(ResourceLocation(Core::PathView(path)),false);
+    auto const& data=pointer.mClientTexture.get();
+    if(!data || data->mIsMissingTexture==IsMissingTexture::Yes)return;
+    auto const& tex=data->mClientTexture;
+    for(auto const pos:slots)
+        ui.drawImage(tex,pos,{9.f,9.f},{0.f,0.f},{1.f,1.f},false);
+    ui.flushImages(mce::Color{1.f,1.f,1.f},opacity,HashedString{"ui_textured_and_glcolor"});
+}
+} // namespace
+void drawNativeAppleSkinHud(ll::event::AfterUIRenderEvent& event) noexcept {
+    try {
+        if(!foodHudNeeded()||guiInputCaptured())return;
+        auto pos=locateVanillaHunger(event.screenView());
+        if(!pos)return;
+        auto const info=informationSnapshot();
+        if(!info || !informationCurrent(*info,worldGeneration.load(),GetTickCount64()))return;
+        auto const hunger=exactFoodValue(info->food.hunger,20.f);
+        if(!hunger)return;
+        auto& ui=event.uiRenderContext();
+        auto* player=ui.mClient.getLocalPlayer();
+        if(!player || !player->isAlive() || player->isCreative() || player->isSpectator())return;
+        auto const restoration=heldFoodRestoration(info->food,info->food.held);
+        float const futureHunger=restoration?std::min(20.f,*hunger+restoration->hunger):*hunger;
+        std::vector<glm::vec2> previewFull,previewHalf;
+        previewFull.reserve(10);previewHalf.reserve(10);
+        for(int i=0;i<10;++i) {
+            auto const current=portion(*hunger,i);
+            auto const after=portion(futureHunger,i);
+            if(after<=current)continue;
+            glm::vec2 const slot{pos->x-8.f-8.f*i,pos->y};
+            if(after==HungerFill::Full)previewFull.push_back(slot);
+            else previewHalf.push_back(slot);
+        }
+        drawNativeFoodPreview(ui,"textures/ui/hunger_full",previewFull,.5f);
+        drawNativeFoodPreview(ui,"textures/ui/hunger_half",previewHalf,.5f);
+        auto const saturation=exactFoodValue(info->food.saturation,20.f);
+        if(!saturation)return;
+        float const futureSat=restoration?std::min(futureHunger,*saturation+restoration->saturation):*saturation;
+        if(!updateFoodOutlines(ui))return;
+        auto const& colors=nativeFoodOutlines().variants;
+        for(int i=0;i<10;++i) {
+            float const x=pos->x-8.f-8.f*i,y=pos->y;
+            auto const now=portion(*saturation,i);
+            auto const after=portion(futureSat,i);
+            if(now==HungerFill::Full)nativeFoodOutline(ui,colors[0],x,y);
+            else if(now==HungerFill::Half)nativeFoodOutline(ui,colors[1],x,y);
+            if(after==HungerFill::Full && now==HungerFill::None)
+                nativeFoodOutline(ui,colors[2],x,y);
+            else if(after==HungerFill::Half && now==HungerFill::None)
+                nativeFoodOutline(ui,colors[3],x,y);
+            else if(after==HungerFill::Full && now==HungerFill::Half)
+                nativeFoodOutline(ui,colors[4],x,y);
+        }
+    } catch(...) {}
+}
 void drawNativeOffhandHud(ll::event::AfterUIRenderEvent& event) {
     auto const options=informationOptions();auto o=options->playerHud;
     auto const& transform=options->hudLayouts.panels[static_cast<unsigned>(HudId::Offhand)];

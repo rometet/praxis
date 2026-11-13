@@ -34,6 +34,6 @@ int main() {
     check(updated["inventoryHud"]==true&&updated["inventoryHudOptions"]["x"]==500);check(updated["inventoryHudOptions"]["future"].is_null());
     auto s=runtimeSettings(edited,0);check(!s.on(Feature::InventoryHUD));
     check(!runtimeSettings(edited,kAllRenderPasses,UINT32_MAX).on(Feature::InventoryHUD));
-    for(unsigned i:{15u,16u,17u,18u,19u,22u,23u,25u,27u,28u,29u,30u,31u})check(!(ownedFeatureSlotMask&featureRegistryBit(i)));
+    for(unsigned i:{22u,23u,25u,31u})check(!(ownedFeatureSlotMask&featureRegistryBit(i)));
     std::cout<<"InventoryHUD "<<checks<<" checks PASS\n";
 }

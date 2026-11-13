@@ -12,18 +12,18 @@ void testHudOrganization() {
     legacyGuiState={};legacyGuiState.selected=-8;
     for(int i=0;i<3;++i)navigationFrame(context);
     auto* content=activeWindow(context,"##praxis_content");check(content,"HUD page uses the production content window");
-    check(hudSettingsTestSections.size()==6,"all retained HUD groups and foreign editor route are shown");
+    check(hudSettingsTestSections.size()==7,"all retained HUD groups and foreign editor route are shown");
     check(content->ScrollMax.y>0,"small HUD page retains native vertical scrolling");
     check(content->DC.CursorMaxPos.x<=content->WorkRect.Max.x+1,"HUD groups fit the compact Japanese UI");
     saveRender("praxis-ui-hud-640.ppm",ImGui::GetDrawData(),640,480);
     auto key=[&](ImGuiKey k){io.AddKeyEvent(k,true);navigationFrame(context);io.AddKeyEvent(k,false);navigationFrame(context);navigationFrame(context);};
     // Reach each existing toggle by Tab; activation must edit its original field.
     std::set<ImGuiID> toggles;
-    for(auto label:{"情報HUDを表示","装備の耐久値HUDを表示","オフハンドHUDを表示","満腹度HUDを表示","チャンク情報HUDを表示"})
+    for(auto label:{"情報HUDを表示","装備の耐久値HUDを表示","オフハンドHUDを表示","満腹度HUDを表示","状態効果タイマーを表示","チャンク情報HUDを表示"})
         toggles.insert(content->GetID(label));
     std::set<ImGuiID> reached;
     ImGui::FocusWindow(content);ImGui::SetFocusID(content->GetID("##hud_search"),content);
-    for(int step=0;step<65&&reached.size()<toggles.size();++step) {
+    for(int step=0;step<80&&reached.size()<toggles.size();++step) {
         key(ImGuiKey_Tab);
         if(!toggles.contains(context->NavId))continue;
         reached.insert(context->NavId);
@@ -34,7 +34,8 @@ void testHudOrganization() {
     }
     check(reached==toggles,"all retained HUD toggles are keyboard reachable");
     check(testConfig.informationOptions.infoHud&&testConfig.informationOptions.durabilityHud
-        &&testConfig.informationOptions.playerHud.offhandHud&&testConfig.informationOptions.playerHud.foodHud,
+        &&testConfig.informationOptions.playerHud.offhandHud&&testConfig.informationOptions.playerHud.foodHud
+        &&testConfig.effectTimer,
         "HUD toggles update the existing config fields");
     check(!testConfig.chunkBorder.showHud,"chunk HUD toggle updates its existing initially-ON field");
     // Focus and type into the actual InputText widget, then inspect its rendered groups.
@@ -48,14 +49,14 @@ void testHudOrganization() {
     check(hudSettingsTestSections.size()==1&&hudSettingsTestSections.front()=="設計図・材料HUD / HUD配置","English Materials alias finds the foreign HUD route");
     key(ImGuiKey_Escape);ImGui::FocusWindow(content);ImGui::SetFocusID(content->GetID("HUD配置を開く"),content);key(ImGuiKey_Enter);
     check(legacyGuiState.selected==-9,"actual HUD page button opens the product layout editor");
-    navigationFrame(context);check(hudLayoutTestTargetCount==5,"layout editor omits retired inventory and retains five local panels");
+    navigationFrame(context);check(hudLayoutTestTargetCount==6,"layout editor omits retired inventory and retains six local panels");
     saveRender("praxis-ui-hud-layout-640.ppm",ImGui::GetDrawData(),640,480);
     content=activeWindow(context,"##praxis_content");ImGui::FocusWindow(content);ImGui::SetFocusID(content->GetID("全体を初期化"),content);key(ImGuiKey_Enter);
     ImGui::SetFocusID(content->GetID("保存"),content);key(ImGuiKey_Enter);
     check(testConfig.informationOptions.hudLayouts.inventory==retiredLayout,"layout reset/save preserves the retired stored transform");
     unifiedHotkeyTestApi={sizeof(HudControlApiV1),1,usabilityForeignCount,usabilityForeignRead,usabilityForeignWrite,usabilityForeignReadLayout,usabilityForeignWriteLayout};
     ImGui::SetFocusID(content->GetID("読込み"),content);key(ImGuiKey_Enter);
-    navigationFrame(context);check(hudLayoutTestTargetCount==7,"connected Schematic and Materials layout targets remain available");
+    navigationFrame(context);check(hudLayoutTestTargetCount==8,"connected Schematic and Materials layout targets remain available");
     unifiedHotkeyTestApi={};navigationFrame(context);
     legacyGuiState.selected=-4;navigationFrame(context);
     for(auto const& row:unifiedHotkeyUiProbes)check(row.group!=0||row.id!=23,"actual key assignment page excludes retired23");

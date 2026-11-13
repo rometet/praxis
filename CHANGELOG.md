@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.1.7-rc.2 (2026-11-13) — Tsukuyomi-inspired utilities
+
+- Added AutoTool, EffectTimer, AngleSnap yaw/pitch axis locks,
+  ToggleSneakSprint (V/B key toggles), graphical AppleSkin, Java-style
+  DebugScreen, and persistent/session DeathLogger.
+- Added a limited ItemScroller recipe-favorites and trade-favorites
+  experience. Automatic villager-trade execution is **not** implemented.
+- Reworked ToggleSneakSprint input from per-tick actor state writes to a
+  transient raw-input intent through Praxis's **existing** input-extraction
+  hook. No additional native hook was registered.
+- Reworked AppleSkin to render resource-pack-derived meat-sprite saturation
+  contours: gold for current saturation, pale gold for projected gain and
+  correct partial-icon fills.
+- Implemented an F3-inspired two-column DebugScreen which temporarily hides
+  the minimap, returning it automatically on exit.
+- Tested final ToggleSneakSprint and AppleSkin behavior in-game on the pinned
+  1.26.60.05 client; prior feedback also confirmed working AngleSnap axis
+  lock and F3-style DebugScreen. Offline tests cover additional policy/UI logic.
+- **Limitations:** 15-degree true AngleSnap rotation, MaterialCollector via LHolo,
+  and full ItemScroller auto-trading are not available. Other additions are
+  not claimed fully in-game tested. The upstream LeviLamina CI build remains
+  broken on GitHub-hosted Windows; the local client DLL was built and tested.
+- Windows x64 / Minecraft 1.26.60.05 / LeviLamina Client 26.60.0 prerelease.
+
 ## v0.1.7-rc.1 (2026-11-05) — Minecraft 1.26.60.05 verified client update
 
 - Repaired TimeChanger daytime sky and WeatherChanger/NoRender Weather visuals; validated these in-game.

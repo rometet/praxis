@@ -10,6 +10,7 @@
 #include "platform/HandRestock.h"
 #include "platform/InventoryRequest.h"
 #include "platform/InventoryActions.h"
+#include "platform/ItemScrollerExtras.h"
 #include "render/Renderer.h"
 #include "render/WorldOverlays.h"
 #include "gui/GuiBridge.h"
@@ -17,6 +18,8 @@
 #include "map/MapRuntime.h"
 #include "resourcepacks/WorldPackSwitch.h"
 #include "runtime/InformationRuntime.h"
+#include "runtime/GameplayRuntime.h"
+#include "runtime/DeathLog.h"
 #include "ll/api/Config.h"
 #include "runtime/ConfigCodec.h"
 #include "runtime/ProfileDocument.h"
@@ -99,6 +102,11 @@ bool toggleFeatureRequest(Feature feature) {
     case Feature::AccurateBlockPlacement: value = &config.accurateBlockPlacement; break;
     case Feature::FastRightClick: value = &config.fastRightClick; break;
     case Feature::FastLeftClick: value = &config.fastLeftClick; break;
+    case Feature::AutoTool: value = &config.autoTool; break;
+    case Feature::EffectTimer: value = &config.effectTimer; break;
+    case Feature::AngleSnap: value = &config.angleSnap; break;
+    case Feature::ToggleSneakSprint: value = &config.toggleSneakSprint; break;
+    case Feature::DebugScreen: value = &config.debugScreen; break;
     default: return false;
     }
     *value = !*value;
@@ -319,6 +327,8 @@ void activateRuntime() {
     zoomHeld = false;
     zoomFactor = 1.0f;
     configureInformationRuntime(config.informationOptions);
+    if(!startDeathLog(std::filesystem::absolute(configPath.parent_path()/"deathlog")))
+        logGuiInfo("Death log persistence worker unavailable; dedicated death log disabled");
     active = true;
     runtimeReady = true;
     }
@@ -333,6 +343,8 @@ void deactivateRuntime() noexcept {
     flushConfigLocked();
     active = false;
     runtimeReady=false;
+    stopDeathLog();
+    resetGameplayRuntime();
     expireWeatherChangerDiagnostics();
     configureInformationRuntime(InformationOptions{});
     retireMap();
@@ -417,6 +429,9 @@ void adjustZoomMouse(short& dx, short& dy) {
 
 void resetWorldRuntime() noexcept {
     resetFlexiblePlacement();
+    resetGameplayRuntime();
+    resetDeathLog();
+    resetItemScrollerExtras();
     packs::invalidateWorldPackOperation();
     requestCameraCandidateReset();
     cancelUnifiedHotkeyCapture();

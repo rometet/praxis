@@ -1258,6 +1258,7 @@ void onUiRender(ll::event::AfterUIRenderEvent& event) {
     if(!resourceLease.admitted())return;
     drawNativeDurabilityHud(event);
     drawNativeOffhandHud(event);
+    drawNativeAppleSkinHud(event);
     refreshExactInspection(event);
     if (!uiEventLogged) {
         uiEventLogged = true;

@@ -16,6 +16,7 @@
 #include "platform/HandRestock.h"
 #include "platform/InventoryRequest.h"
 #include "platform/InventoryActions.h"
+#include "platform/ItemScrollerExtras.h"
 #include "platform/FlexiblePlacement.h"
 #include "platform/FastClick.h"
 #include "platform/FastBlockPlacement.h"
@@ -24,6 +25,7 @@
 #include "gui/GuiBridge.h"
 #include "render/ShulkerPreview.h"
 #include "runtime/InformationRuntime.h"
+#include "runtime/GameplayRuntime.h"
 #include "runtime/ConfigStorage.h"
 #include "map/MapRuntime.h"
 #include "ll/api/event/EventBus.h"
@@ -38,6 +40,7 @@
 #include "mc/client/options/IOptionRegistry.h"
 #include "mc/client/player/LocalPlayer.h"
 #include "mc/client/entity/systems/ClientInputUpdateSystem.h"
+#include "mc/client/input/ClientMoveInputHandler.h"
 #include "mc/deps/vanilla_components/MovementAbilitiesComponent.h"
 #include "mc/entity/components/MoveInputComponent.h"
 #include "mc/deps/vanilla_components/ActorDataFlagComponent.h"
@@ -391,7 +394,31 @@ LL_STATIC_HOOK(FreeCameraMovementHook,ll::memory::HookPriority::Normal,
  ActorDataFlagComponent const& flags,RawMoveInputComponent& raw,
  Optional<SneakingComponent const> sneaking,Optional<WasInWaterFlagComponent const> water){
  NativeHookLifetime::Lease lease(nativeLifetime);
- origin(abilities,input,flags,raw,sneaking,water);
+ // Reuse this ALREADY INSTALLED camera input bridge; do not install a new
+ // detour. Vanilla sees only a transient copy, not persistent synthetic bits.
+ auto intent=lease.admitted()?gameplayToggleInputIntent():ToggleInputIntent{};
+ bool applied=false;
+ if(intent.sneak||intent.sprint) {
+  auto client=ll::service::getClientInstance();
+  if(client && ClientMoveInputHandler::getMoveInput(*client)==&input) {
+   auto augmented=input;
+   auto& bits=augmented.mRawInputState->mFlagValues;
+   if(intent.sneak)bits->set(static_cast<std::size_t>(MoveInputState::Flag::SneakDown));
+   if(intent.sprint)bits->set(static_cast<std::size_t>(MoveInputState::Flag::SprintDown));
+   origin(abilities,augmented,flags,raw,sneaking,water);
+   applied=true;
+  }
+ }
+ if(!applied)origin(abilities,input,flags,raw,sneaking,water);
+ // One-shot, non-spam diagnosis for game input admission. This reports that
+ // the exact local MoveInputComponent was augmented before vanilla extraction.
+ if(intent.sneak||intent.sprint) {
+  static std::atomic_bool loggedMatch{},loggedMismatch{};
+  if(applied && !loggedMatch.exchange(true))
+   logGuiInfo("ToggleSneakSprint: native input extraction bridge MATCHED");
+  if(!applied && !loggedMismatch.exchange(true))
+   logGuiInfo("ToggleSneakSprint: input extraction bridge missing/mismatch");
+ }
  if(lease.admitted())cameraCandidateConsumeMovement(input,raw);
 }
 LL_TYPE_INSTANCE_HOOK(FreeCameraDimensionHook,ll::memory::HookPriority::Normal,
@@ -464,6 +491,7 @@ bool installNative(){
  // a complete exception barrier; retain fail-closed behavior on error.
  if(inventoryRequestsReady && !installHandRestock())logGuiInfo("HandRestock backend unavailable; existing features retained");
  if(inventoryRequestsReady && !installInventoryActions())logGuiInfo("InventorySort/InventoryTransfer backend unavailable; existing features retained");
+ if(inventoryRequestsReady && !installItemScrollerExtras())logGuiInfo("ItemScroller recipe/trade extension unavailable; existing sort/transfer retained");
  zoomMouseListener=ll::event::EventBus::getInstance().emplaceListener<ll::event::MouseInputEvent>(
   [](ll::event::MouseInputEvent& event){
    NativeHookLifetime::Lease lease(nativeLifetime);if(!lease.admitted())return;
@@ -487,6 +515,7 @@ bool installNative(){
  worldExitListener=ll::event::EventBus::getInstance().emplaceListener<ll::event::ClientExitLevelEvent>(
   [](ll::event::ClientExitLevelEvent& event){NativeHookLifetime::Lease lease(nativeLifetime);if(lease.admitted()){cameraCandidateExit(event.self());resetWorldRuntime();}});
  if(!worldExitListener){removeNative();return false;}
+ if(!startGameplayRuntime()){removeNative();return false;}
  if(!startInformationRuntime()){removeNative();return false;}
  if(!installShulkerPreview()){removeNative();return false;}
  if(!installFlexiblePlacement()){removeNative();return false;}
@@ -499,6 +528,11 @@ bool installNative(){
  if(masks&antiEffectPasses)availableFeatures.fetch_or(featureRegistryBit(unsigned(Feature::AntiEffect)));
  availableFeatures.fetch_or((1u<<static_cast<unsigned>(Feature::NoRender))
    |(1u<<static_cast<unsigned>(Feature::Zoom))
+   |featureRegistryBit(static_cast<unsigned>(Feature::AutoTool))
+   |featureRegistryBit(static_cast<unsigned>(Feature::EffectTimer))
+   |featureRegistryBit(static_cast<unsigned>(Feature::AngleSnap))
+   |featureRegistryBit(static_cast<unsigned>(Feature::ToggleSneakSprint))
+   |featureRegistryBit(static_cast<unsigned>(Feature::DebugScreen))
    |featureRegistryBit(static_cast<unsigned>(Feature::Freelook)));
   if(freeCameraReady)availableFeatures.fetch_or(featureRegistryBit(static_cast<unsigned>(Feature::FreeCamera)));
  if(visualFrame2660Ready) {
@@ -536,6 +570,7 @@ bool removeNative()noexcept{
  bool toolProtectionRemoved=removeToolProtection();
  bool handRestockRemoved=removeHandRestock();
  bool inventoryActionsRemoved=removeInventoryActions();
+ bool itemScrollerRemoved=removeItemScrollerExtras();
  bool inventoryRequestsRemoved=inventory::removeRequests();
  bool flexiblePlacementRemoved=removeFlexiblePlacement();
  removeFastClicks();
@@ -543,9 +578,15 @@ bool removeNative()noexcept{
  bool ok=shutdownGuiBackend();
  if(!timeChangerRemoved||!weatherChangerRemoved)ok=false;
  if(!toolProtectionRemoved)ok=false;
- if(!handRestockRemoved||!inventoryRequestsRemoved||!inventoryActionsRemoved)ok=false;
+ if(!handRestockRemoved||!inventoryRequestsRemoved||!inventoryActionsRemoved||!itemScrollerRemoved)ok=false;
  if(!flexiblePlacementRemoved)ok=false;
  if(!stopInformationRuntime())ok=false;
+ if(!stopGameplayRuntime())ok=false;
+ availableFeatures.fetch_and(~(featureRegistryBit(unsigned(Feature::AutoTool))
+   |featureRegistryBit(unsigned(Feature::EffectTimer))
+   |featureRegistryBit(unsigned(Feature::AngleSnap))
+   |featureRegistryBit(unsigned(Feature::ToggleSneakSprint))
+   |featureRegistryBit(unsigned(Feature::DebugScreen))));
  if(!removeShulkerPreview())ok=false;
  if(zoomMouseListener){
   bool removed=ll::event::EventBus::getInstance().removeListener<ll::event::MouseInputEvent>(zoomMouseListener);

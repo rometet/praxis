@@ -13,6 +13,12 @@
 #include "core/InventorySortPolicy.h"
 #include "core/InventoryTransferPolicy.h"
 #include "core/PlayerHudPolicy.h"
+#include "core/AutoToolPolicy.h"
+#include "core/AngleSnapPolicy.h"
+#include "core/ToggleSneakSprintPolicy.h"
+#include "core/EffectTimerPolicy.h"
+#include "core/DebugScreenPolicy.h"
+#include "core/ItemScrollerPolicy.h"
 #include "core/FeatureRegistryPolicy.h"
 #include "core/CameraCandidatePolicy.h"
 #include "core/WeatherOptions.h"
@@ -24,8 +30,15 @@
 #include <atomic>
 #include <memory>
 namespace praxis::companion {
-// Storage extent28; own0..14,20/21,24,26/27. Retired InventoryHUD23 and unknown slots stay opaque.
-inline constexpr std::uint32_t ownedFeatureSlotMask=0x7D307FFFu;
+// Storage extent 31; own 0..21, 24, 26..30. Retired InventoryHUD23 and
+// unknown/reserved slots stay opaque.
+inline constexpr std::uint32_t ownedFeatureSlotMask=[]() constexpr {
+    std::uint32_t mask=0;
+    for(unsigned i=0;i<=21u;++i)mask|=featureRegistryBit(i);
+    mask|=featureRegistryBit(24u);
+    for(unsigned i=26u;i<=30u;++i)mask|=featureRegistryBit(i);
+    return mask;
+}();
 struct Settings {
  HitboxOptions hitboxOptions{};
  RenderMask renderMask{};
@@ -48,6 +61,12 @@ struct Settings {
  HandRestockOptions handRestock{};
  InventorySortOptions inventorySort{};
  InventoryTransferOptions inventoryTransfer{};
+ AutoToolOptions autoTool{};
+ AngleSnapOptions angleSnap{};
+ ToggleSneakSprintOptions toggleSneakSprint{};
+ EffectTimerOptions effectTimer{};
+ DebugScreenOptions debugScreen{};
+ ItemScrollerOptions itemScroller{};
  FlexiblePlacementOptions flexiblePlacement{};
  AccuratePlacementOptions accuratePlacement{};
  FastClickOptions fastRightClick{}, fastLeftClick{};

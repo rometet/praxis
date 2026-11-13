@@ -13,11 +13,15 @@
 #include "mc/client/player/LocalPlayer.h"
 #include "mc/world/item/ItemStack.h"
 #include "mc/world/item/Item.h"
+#include "mc/world/item/components/IFoodItemComponent.h"
 #include "mc/world/actor/player/Player.h"
+#include "mc/world/effect/MobEffectInstance.h"
 #include "mc/world/attribute/Attribute.h"
 #include "mc/world/attribute/AttributeInstance.h"
 #include "mc/world/attribute/AttributeInstanceConstRef.h"
 #include "mc/world/level/Level.h"
+#include "mc/world/level/Tick.h"
+#include "mc/world/level/TickDeltaTimeManager.h"
 #include "mc/world/level/dimension/Dimension.h"
 #include "mc/world/level/BlockSource.h"
 #include "mc/world/level/biome/Biome.h"
@@ -46,8 +50,11 @@ std::mutex collectionMutex;
 std::atomic_bool running{};
 std::atomic_bool collectionFailureLogged{};
 std::uint64_t previousGeneration{},previousTime{};
+std::uint64_t previousServerTick{};
+bool previousServerTickKnown{};
 std::array<double,3> previousPosition{};
 ClientSaturationTracker saturationTracker;
+ClientSaturationTracker exhaustionTracker;
 std::uint64_t memorySampleAt{};std::string cachedMemory;
 std::string numbers(std::initializer_list<double> values) {
     std::ostringstream stream;stream<<std::fixed<<std::setprecision(2);
@@ -60,17 +67,21 @@ std::optional<DurabilityValue> inspect(ItemStack const& stack) {
 }
 void collect(ll::event::AfterUIRenderEvent& event) {
     std::lock_guard lock(collectionMutex);
-    if(!running.load()||!runtimeReady.load()){saturationTracker.reset();return;}
+    if(!running.load()||!runtimeReady.load()){saturationTracker.reset();exhaustionTracker.reset();return;}
     auto o=options.load();
-    if(!o->infoHud&&!o->durabilityHud&&!o->playerHud.foodHud&&!inspectorNeeded(o->inspector)) { publication.store(std::make_shared<InformationSnapshot>());previousTime=0;saturationTracker.reset();return; }
+    auto const runtime=settings();
+    bool const collectEffects=runtime->on(Feature::EffectTimer);
+    bool const collectDebug=runtime->on(Feature::DebugScreen);
+    if(!o->infoHud&&!o->durabilityHud&&!o->playerHud.foodHud&&!inspectorNeeded(o->inspector)
+        &&!collectEffects&&!collectDebug) { publication.store(std::make_shared<InformationSnapshot>());previousTime=0;saturationTracker.reset();exhaustionTracker.reset();return; }
     auto& client=event.uiRenderContext().mClient;
     auto* player=client.getLocalPlayer();
-    if(!player) {publication.store(std::make_shared<InformationSnapshot>());previousTime=0;saturationTracker.reset();return;}
+    if(!player) {publication.store(std::make_shared<InformationSnapshot>());previousTime=0;saturationTracker.reset();exhaustionTracker.reset();return;}
     auto const screen=event.screenView().getScreenName();
     auto top=client.getTopScreenName();
     auto view=informationView(screen,top);
     if(view==InformationView::Retire) {
-        publication.store(std::make_shared<InformationSnapshot>());previousTime=0;saturationTracker.reset();return;
+        publication.store(std::make_shared<InformationSnapshot>());previousTime=0;saturationTracker.reset();exhaustionTracker.reset();return;
     }
     if(view==InformationView::Defer)return;
     auto generation=worldGeneration.load();auto now=GetTickCount64();
@@ -89,9 +100,22 @@ void collect(ll::event::AfterUIRenderEvent& event) {
         auto saturationRef=player->getAttribute(saturation);
         next.food.saturation=saturationTracker.observe(readSaturationObservation(saturation,saturationRef),
             generation,static_cast<int>(player->getDimensionId()),now);
-        // This is observed client state, not proof of a server packet receipt.
-        // Exhaustion has no verified client contract and remains Unknown.
-    } else saturationTracker.reset();
+        auto const& exhaustion=Player::EXHAUSTION();
+        auto exhaustionRef=player->getAttribute(exhaustion);
+        next.food.exhaustion=exhaustionTracker.observe(readExhaustionObservation(exhaustion,exhaustionRef),
+            generation,static_cast<int>(player->getDimensionId()),now);
+        auto const& held=player->getSelectedItem();
+        if(!held.isNull()&&held.mItem&&previewItemWithinBudget(held)) {
+            if(auto* component=held.mItem->getFood()) {
+                next.food.held.present=true;
+                next.food.held.name=held.getHoverName();
+                if(next.food.held.name.size()>64)next.food.held.name.resize(64);
+                next.food.held.nutrition=component->getNutrition();
+                next.food.held.saturationModifier=component->getSaturationModifier();
+                next.food.held.canAlwaysEat=component->canAlwaysEat();
+            }
+        }
+    } else { saturationTracker.reset();exhaustionTracker.reset(); }
     auto feet=player->getFeetPos();auto rot=player->getRotation();int dim=player->getDimensionId();
     next.values[0]=numbers({feet.x,feet.y,feet.z});
     if(auto scale=dimensionCoordinateScale(dim))next.values[1]=numbers({feet.x*(*scale),feet.z*(*scale)});
@@ -171,9 +195,76 @@ void collect(ll::event::AfterUIRenderEvent& event) {
             next.inspector.memory=cachedMemory;
         }
     }
+    if(collectEffects) {
+        auto const& active=player->getAllEffects();
+        if(active.size()<=64) {
+            next.effects.reserve(std::min<std::size_t>(active.size(),16));
+            for(auto const& effect:active) {
+                if(next.effects.size()>=16)break;
+                EffectEntry entry;
+                entry.name=effect.getDisplayName();
+                if(entry.name.empty()||entry.name.size()>128)continue;
+                entry.amplifier=effect.mAmplifier;
+                entry.durationTicks=effect.mDuration.get().mValue;
+                entry.ambient=effect.mAmbient;
+                if(entry.durationTicks==0)continue;
+                next.effects.push_back(std::move(entry));
+            }
+        }
+    }
+    if(collectDebug) {
+        auto const& level=player->getLevel();
+        next.debug.clientTick=level.getCurrentTick().tickID;
+        next.debug.serverTick=level.getCurrentServerTick().tickID;
+        auto delta=level.getTickDeltaTimeManager();
+        auto const* deltaPtr=delta.get().get();
+        if(deltaPtr&&std::isfinite(deltaPtr->mTickDeltaTime))next.debug.tickDeltaSeconds=deltaPtr->mTickDeltaTime;
+        if(previousServerTickKnown&&previousGeneration==generation&&previousTime&&now>previousTime
+            &&now-previousTime<=2000&&next.debug.serverTick>=previousServerTick) {
+            double const seconds=(now-previousTime)/1000.0;
+            double const ticks=double(next.debug.serverTick-previousServerTick);
+            if(seconds>0&&ticks>=0) {
+                next.debug.observedServerTps=ticks/seconds;
+                next.debug.observedServerMspt=next.debug.observedServerTps>0?1000.0/next.debug.observedServerTps:0.0;
+                next.debug.serverRateKnown=true;
+            }
+        }
+        previousServerTick=next.debug.serverTick;previousServerTickKnown=true;
+        // This client-only build has no authoritative server heap/chunk API.
+        next.debug.serverMetricsAvailable=false;
+        next.debug.dimension=next.values[2];
+        next.debug.worldTime=next.values[19];
+        next.debug.chunk=next.values[15];
+        next.debug.biome=next.values[3];
+        next.debug.light=next.values[11];
+        auto levelId=level.getLevelId();
+        for(char c:levelId)if(static_cast<unsigned char>(c)<32||c==127){levelId.clear();break;}
+        if(levelId.size()>128)levelId.resize(128);
+        next.debug.levelId=std::move(levelId);
+        auto const& hit=client.getLatestHitResult();
+        auto& source=player->getDimension().getBlockSourceFromMainChunkSource();
+        if(!hit.mIndirectHit&&hit.mType==HitResultType::Tile&&source.getChunkAt(hit.mBlock)) {
+            next.debug.lookingAt=source.getBlock(hit.mBlock).getTypeName()+" @ "+
+                std::to_string(hit.mBlock.x)+", "+std::to_string(hit.mBlock.y)+", "+std::to_string(hit.mBlock.z);
+        } else if(!hit.mIndirectHit&&hit.mType==HitResultType::Entity) {
+            auto* actor=hit.getEntity();
+            if(actor&&actor->isAlive()) {
+                auto const& position=actor->getPosition();
+                next.debug.lookingAt=actor->getTypeName()+" / "+actor->getNameTag()+" @ "+numbers({position.x,position.y,position.z});
+            }
+        }
+        if(next.debug.lookingAt.size()>256)next.debug.lookingAt.resize(256);
+        if(!memorySampleAt||now-memorySampleAt>=1000) {
+            PROCESS_MEMORY_COUNTERS counters{};counters.cb=sizeof(counters);cachedMemory.clear();
+            if(K32GetProcessMemoryInfo(GetCurrentProcess(),&counters,sizeof(counters)))
+                cachedMemory=numbers({counters.WorkingSetSize/1048576.0})+" MiB";
+            memorySampleAt=now;
+        }
+        next.debug.memory=cachedMemory;
+    }
     // All borrowed Minecraft objects stop at this callback. Publication contains strings/numbers only.
     if(generation!=worldGeneration.load()||!running.load()||!runtimeReady.load()||client.getLocalPlayer()!=player) {
-        saturationTracker.reset();return;
+        saturationTracker.reset();exhaustionTracker.reset();return;
     }
     previousGeneration=generation;previousTime=now;previousPosition={feet.x,feet.y,feet.z};
     if(auto block=parseBlockStateSample(next.inspector.looking[0],generation,now))
@@ -189,7 +280,7 @@ void configureInformationRuntime(InformationOptions const& value) {
     if(validInformationOptions(value)) {
         std::lock_guard lock(collectionMutex);
         if(options.load()->playerHud.foodHud!=value.playerHud.foodHud) {
-            saturationTracker.reset();
+            saturationTracker.reset();exhaustionTracker.reset();
             auto next=*publication.load();next.food.saturation={};
             publication.store(std::make_shared<InformationSnapshot const>(std::move(next)));
         }
@@ -198,7 +289,7 @@ void configureInformationRuntime(InformationOptions const& value) {
 }
 void resetInformationRuntime() noexcept {
     std::lock_guard lock(collectionMutex);publication.store(std::make_shared<InformationSnapshot>());
-    previousGeneration=previousTime=memorySampleAt=0;previousPosition={};cachedMemory.clear();saturationTracker.reset();
+    previousGeneration=previousTime=memorySampleAt=0;previousServerTick=0;previousServerTickKnown=false;previousPosition={};cachedMemory.clear();saturationTracker.reset();exhaustionTracker.reset();
     lastInspectedBlock.store(nullptr);
 }
 bool startInformationRuntime() {

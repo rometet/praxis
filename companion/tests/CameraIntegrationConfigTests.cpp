@@ -72,7 +72,7 @@ int main(int argc,char** argv) {
         std::filesystem::create_directories(root/"profiles");
         std::cout<<"Isolated fixture: "<<root.string()<<'\n';
         check(featureCount==31&&static_cast<unsigned>(Feature::Freelook)==20&&static_cast<unsigned>(Feature::FreeCamera)==21,"camera sparse slot ABI20/21 retained with appended action27");
-        check(ownedFeatureSlotMask==0x7d307fffu&&featureRegistryMask(featureCount)==0x7fffffffu,"sparse ownership preserves reserved22/25 and32-bit tails");
+        check(ownedFeatureSlotMask==0x7d3fffffu&&featureRegistryMask(featureCount)==0x7fffffffu,"sparse ownership preserves reserved22/25 and32-bit tails");
         check(featureProfileFields.size()>=22&&featureProfileFields.size()<=32,"all typed owners fit field history");
         for(unsigned i=0;i<4;++i)check(std::string_view(featureProfileFields[13+i].field)==cameraFields[i]
             &&featureProfileFields[13+i].slot==20+i/2,"camera descriptors append without shifting existing history");

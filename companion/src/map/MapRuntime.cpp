@@ -1,4 +1,6 @@
 #include "map/MapRuntime.h"
+#include "map/DeathHistory.h"
+#include "render/InformationHud.h"
 #include "gui/JapaneseText.h"
 #include "map/MapCore.h"
 #include "map/MapDataSource.h"
@@ -16,6 +18,7 @@
 #endif
 #include <atomic>
 #include <cstdio>
+#include <ctime>
 #include <deque>
 #include <imgui.h>
 #include <memory>
@@ -39,6 +42,7 @@ bool pendingMapToggle{};
 CaveBand caveBand;
 SettingsHistory settingsHistory;
 DeathTracker deaths;
+DeathHistory deathHistory;
 std::optional<Waypoint> pendingDeath;
 Waypoints waypoints;
 std::atomic<std::shared_ptr<Settings const>> options{std::make_shared<Settings>()};
@@ -149,6 +153,7 @@ bool retireLocked() {
 
     caveBand.reset();
     deaths.clear();
+    deathHistory.clear();
     pendingDeath.reset();
     publication.store({}, std::memory_order_release);
     worldCentered = true;
@@ -384,8 +389,12 @@ void updateMap(LocalPlayer &player, std::uint64_t generation) noexcept {
         int x = int(std::floor(position.x)), z = int(std::floor(position.z));
         auto [top, bottom] = caveBand.select(position.y, setting->caveDepth);
         auto death = deaths.observe(activeSession, position.x, position.y, position.z, player.isAlive());
-        if (setting->lastDeath && death)
+        if (setting->lastDeath && death) {
+            auto seconds = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            deathHistory.record(activeSession, *death, static_cast<std::uint64_t>(seconds));
             pendingDeath = std::move(death);
+        }
         if (pendingDeath && waypointsLoadDone && !waypointsBlocked) {
             if (!waypoints.edit(*pendingDeath))
                 waypoints.add(*pendingDeath);
@@ -562,7 +571,7 @@ void toggleMapEnabled() noexcept {
 bool mapHudNeeded() noexcept {
     auto s = publication.load(std::memory_order_acquire);
     auto setting = options.load();
-    return setting->enabled && setting->minimap && bool(s);
+    return !debugHudNeeded() && setting->enabled && setting->minimap && bool(s);
 }
 std::array<int, mapActionCount> mapActionBindings() noexcept { return options.load()->actionKeys; }
 bool setMapActionBinding(MapAction action,int key) noexcept {
@@ -598,6 +607,7 @@ bool dispatchMapAction(MapAction action) noexcept {
     } catch (...) { return false; }
 }
 void drawMapHud(void *context) noexcept {
+    if (debugHudNeeded()) return;
     if (!context || context != ImGui::GetCurrentContext())
         return;
     packs::WorldPackParticipant::Lease resourceLease(packs::praxisWorldParticipant());
@@ -713,6 +723,43 @@ void drawMapSettings() noexcept {
         ImGui::TextUnformatted("地図を有効にしてワールドに入ると、読込み済みの地形を記録します。");
         ImGui::PopID();
         return;
+    }
+    if (ImGui::CollapsingHeader("死亡履歴（最大64件・セッション内）")) {
+        std::vector<DeathHistoryEntry> history;
+        {
+            std::lock_guard lock(mapMutex);
+            history = deathHistory.entries(s->session);
+        }
+        ImGui::TextDisabled("地図の死亡地点記録が有効な間だけ保存します。ワールドを離れると消去されます。");
+        if (history.empty()) ImGui::TextUnformatted("記録はまだありません。");
+        else {
+            if (ImGui::Button("履歴をクリップボードへコピー")) {
+                std::string lines;
+                for (auto const& row : history) {
+                    char line[160]{};
+                    std::snprintf(line, sizeof(line), "%llu, %d, %.2f, %.2f, %.2f\n",
+                        static_cast<unsigned long long>(row.unixSeconds),
+                        row.dimension, row.x, row.y, row.z);
+                    lines += line;
+                }
+                ImGui::SetClipboardText(lines.c_str());
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("履歴を消去")) {
+                std::lock_guard lock(mapMutex);
+                deathHistory.clear();
+                history.clear();
+            }
+            for (auto const& row : history) {
+                char date[40] = "日時不明";
+                std::time_t when = static_cast<std::time_t>(row.unixSeconds);
+                std::tm local{};
+                if (localtime_s(&local, &when) == 0)
+                    std::strftime(date, sizeof(date), "%Y-%m-%d %H:%M:%S", &local);
+                ImGui::Text("%s  X %.1f Y %.1f Z %.1f  [次元%d]",
+                    date, row.x, row.y, row.z, row.dimension);
+            }
+        }
     }
     ImGui::Text("キャッシュ %zu枚 / %.2f MiB / 走査 %.3f ms / %u取得・%u列", s->cacheTiles,
                 s->cacheBytes / (1024. * 1024.), s->scanMilliseconds, s->reads, s->columns);

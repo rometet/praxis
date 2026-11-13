@@ -32,11 +32,50 @@ inline std::string foodText(FoodValue const& v,float maximum) {
     if(!value)return "Unknown";
     char number[32]{};std::snprintf(number,sizeof(number),"%.2f",*value);return number;
 }
-struct FoodSnapshot { FoodValue hunger,saturation,exhaustion; };
-inline std::array<std::string,3> foodHudLines(FoodSnapshot const& food) {
-    return {"Hunger (client): "+foodText(food.hunger,20),
+// Held-food restoration is derived from the SDK's live IFoodItemComponent
+// nutrition/saturation modifier. Unknown components never invent a preview.
+struct HeldFoodPreview {
+    bool present{};
+    std::string name;
+    int nutrition{};
+    float saturationModifier{};
+    bool canAlwaysEat{};
+    bool operator==(HeldFoodPreview const&) const = default;
+};
+struct FoodRestoration {
+    int hunger{}; float saturation{};
+    bool operator==(FoodRestoration const&) const = default;
+};
+struct FoodSnapshot { FoodValue hunger,saturation,exhaustion; HeldFoodPreview held; };
+inline std::optional<FoodRestoration> heldFoodRestoration(FoodSnapshot const& food, HeldFoodPreview const& held) noexcept {
+    auto hunger = exactFoodValue(food.hunger, 20);
+    if(!held.present || !hunger || !std::isfinite(held.saturationModifier)
+        || held.saturationModifier < 0 || held.saturationModifier > 20
+        || held.nutrition < 0 || held.nutrition > 20) return {};
+    int const hungerRestored = std::min(20 - static_cast<int>(*hunger), held.nutrition);
+    float const saturationGain = static_cast<float>(held.nutrition) * held.saturationModifier * 2.0f;
+    float const saturationRestored = std::min(static_cast<float>(hungerRestored), saturationGain);
+    return FoodRestoration{hungerRestored, std::min(20.0f, std::max(0.0f, saturationRestored))};
+}
+inline std::array<std::string,5> foodHudLines(FoodSnapshot const& food) {
+    std::array<std::string,5> lines{
+        "Hunger (client): "+foodText(food.hunger,20),
         "Saturation (client): "+foodText(food.saturation,20),
-        "Exhaustion: "+foodText(food.exhaustion,5)};
+        "Exhaustion: "+foodText(food.exhaustion,5),
+        "", ""};
+    if(food.held.present) {
+        auto const restoration = heldFoodRestoration(food, food.held);
+        if(restoration) {
+            char number[96]{};
+            std::snprintf(number,sizeof(number),"Held food: +%d hunger, +%.2f saturation",
+                restoration->hunger, restoration->saturation);
+            lines[3]=number;
+        } else {
+            lines[3]="Held food: "+food.held.name+" (restoration unavailable)";
+        }
+        lines[4]=food.held.name.size()>64?food.held.name.substr(0,64):food.held.name;
+    }
+    return lines;
 }
 struct HitboxOptions {
     bool enabled{}, transparent{}, showUnclassified{true};

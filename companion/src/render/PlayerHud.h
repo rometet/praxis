@@ -4,4 +4,5 @@ namespace praxis::companion {
 bool foodHudNeeded() noexcept;
 void drawFoodHud(void*) noexcept;
 void drawNativeOffhandHud(ll::event::AfterUIRenderEvent&);
+void drawNativeAppleSkinHud(ll::event::AfterUIRenderEvent&) noexcept;
 }

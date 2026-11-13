@@ -41,9 +41,23 @@ bool saveRuntimeProfile(std::string const&) noexcept { return true; }
 bool loadRuntimeProfile(std::string const&) noexcept { return true; }
 bool deleteRuntimeProfile(std::string const&) noexcept { return true; }
 std::string configStorageStatus() { return "Configuration saved"; }
+std::shared_ptr<DeathLogSnapshot const> deathLogSnapshot() noexcept {
+    static auto const snapshot=std::make_shared<DeathLogSnapshot>();
+    return snapshot;
+}
+bool clearDeathLog() noexcept { return true; }
+std::shared_ptr<ItemScrollerObservation const> itemScrollerObservation() noexcept {
+    static auto const observation=std::make_shared<ItemScrollerObservation>();
+    return observation;
+}
+std::string itemScrollerStatus() { return "Not started"; }
 bool informationHudNeeded() noexcept { return true; }
+bool effectHudNeeded() noexcept { return false; }
+bool debugHudNeeded() noexcept { return false; }
 bool foodHudNeeded() noexcept { return false; }
 std::shared_ptr<InformationOptions const> informationOptions() noexcept {return std::make_shared<InformationOptions>(testConfig.informationOptions);}
+void drawEffectHud(void*) noexcept {}
+void drawDebugHud(void*) noexcept {}
 void drawFoodHud(void*) noexcept {}
 bool shulkerPreviewNeeded() noexcept { return true; }
 bool mapHudNeeded() noexcept { return true; }
@@ -806,8 +820,14 @@ int main() {
               "new aliases do not change unknown stable module names");
         check(cards[7].feature==Feature::TimeChanger&&cards[8].feature==Feature::WeatherChanger&&cards[9].feature==Feature::Hitbox,
               "TimeChanger/Weather favorite cards retained; Hitbox appends at nine");
-        check(cards.size()==23&&cards[15].feature==Feature::Freelook&&cards[16].feature==Feature::FreeCamera&&cards[17].feature==Feature::AntiEffect&&cards[18].feature==Feature::OffhandSwap&&cards[19].feature==Feature::FastRightClick&&cards[20].feature==Feature::FastLeftClick&&cards[21].feature==Feature::AccurateBlockPlacement&&cards[22].feature==Feature::FlexibleBlockPlacement,
-              "four placement/click modules append in order without reordering the first 19 cards");
+        check(cards.size()==28&&cards[15].feature==Feature::AutoTool&&cards[16].feature==Feature::EffectTimer
+              &&cards[17].feature==Feature::AngleSnap&&cards[18].feature==Feature::ToggleSneakSprint
+              &&cards[19].feature==Feature::DebugScreen&&cards[20].feature==Feature::Freelook
+              &&cards[21].feature==Feature::FreeCamera&&cards[22].feature==Feature::AntiEffect
+              &&cards[23].feature==Feature::OffhandSwap&&cards[24].feature==Feature::FastRightClick
+              &&cards[25].feature==Feature::FastLeftClick&&cards[26].feature==Feature::AccurateBlockPlacement
+              &&cards[27].feature==Feature::FlexibleBlockPlacement,
+              "five Tsukuyomi utilities append before camera/placement cards");
         for(auto name:{"NoRender","TimeChanger","WeatherChanger"})
             check(std::string_view(featureDisplayName(name))==name,"requested English feature names retained");
         for(unsigned i=0;i<kRenderPassCount;++i)
