@@ -52,6 +52,9 @@ Boundary: no push, no release, no live installation or Minecraft process changes
 - `7c412a8` feat: integrate Tsukuyomi utilities through LeviLamina public events
 - `0eaab05` docs: record Tsukuyomi feature status, tests and limitations
 - `3726b62` fix(deathlog): replace world log on async load and preserve dimension entries
+- `51eff38` fix(itemscroller): gate recipe assist on its own favorites toggle
+- `0c3bae6` test(deathlog): cover replace-on-load and item scroller gating
+- `b0c5629` fix(deathlog): record client deaths from event or alive transition
 
 ## Verification run in this clone
 
