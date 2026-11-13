@@ -36,6 +36,7 @@
 
 # Current audited Companion layout and portable build instructions.
 !/SOURCE_BUILD.md
+!/SOURCE_DEPENDENCIES.md
 !/GOAL_STATUS.md
 !/companion/
 /companion/*

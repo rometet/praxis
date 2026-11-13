@@ -1,6 +1,6 @@
 # Praxis Client / PraxisCompanion
 
-**Current prerelease: v0.1.7-rc.2** — Minecraft Bedrock for Windows **1.26.60.05**, Windows x64, pinned **LeviLamina Client 26.60.0** (build f28a4b5d).
+**Current prerelease: v0.1.7-rc.3** — Minecraft Bedrock for Windows **1.26.60.05**, Windows x64, pinned **LeviLamina Client 26.60.0** (build f28a4b5d).
 
 Praxis is an independent client-side utility mod. The GUI opens with **F10**. LHolo is installed separately and is required for FlexiblePlacement's native placement bridge (ABI v2).
 
@@ -16,6 +16,13 @@ The current client was tested after the fixes below on a 1.26.60.05 world:
 - **NoRender and supporting utilities:** latest 26.60 updates to render suppression, input and placement compatibility.
 
 This release contains the updated GUI, overlays, map, inventory utilities and other source modules. These are user-observed functional checks, **not exhaustive coverage** of every block, world, server, graphics mode or 26.51 feature.
+
+## v0.1.7-rc.3: release provenance and privacy fixes
+
+This maintenance prerelease preserves the tested v0.1.7-rc.2 gameplay
+features and corrects dependency provenance, source-access instructions and
+the DLL's embedded CodeView debug-symbol path. Full local PDBs are no longer
+distributed. See SOURCE_DEPENDENCIES.md and the release's BUILD_INFO.json.
 
 ## 0.1.7-rc.2: additional client utilities
 
@@ -47,7 +54,7 @@ checksums are provided with each release.
 
 1. Fully exit Minecraft. Back up the existing PraxisCompanion folder, especially its settings.
 2. Install Minecraft Bedrock for Windows 1.26.60.05 with compatible LeviLamina Client 26.60.0.
-3. Download the client Windows x64 ZIP for v0.1.7-rc.2 from GitHub Releases.
+3. Download the client Windows x64 ZIP for v0.1.7-rc.3 from GitHub Releases.
 4. Extract its PraxisCompanion folder into the corresponding version's mods directory. Preserve your existing config/config.json, worlds and packs.
 5. Start Minecraft and press **F10**. Install a compatible LHolo separately to use FlexiblePlacement.
 

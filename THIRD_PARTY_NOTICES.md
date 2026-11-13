@@ -9,7 +9,9 @@ license remains in the root `LICENSE`. Third-party files retain their terms.
 
 ## Terrain code
 
-- ChiyanMap: https://github.com/sunjing2/ChiyanMap
+- ChiyanMap historical upstream: https://github.com/sunjing2/ChiyanMap
+  (currently not accessible; adapted corresponding source and license are
+  retained in `companion/src/map/chiyan/`; original upstream audit pending).
 - Source commit: `1785278a865e6dc93d38cea76ccbffaaf64f6659`.
 - GPL-3.0-only; full text: `companion/src/map/chiyan/LICENSE`.
 - Adapted terrain palette, biome interpolation, surface/water and relief rules.
@@ -19,7 +21,7 @@ license remains in the root `LICENSE`. Third-party files retain their terms.
 
 The exact versions, upstream references and included notice paths are recorded
 in `licenses/DEPENDENCY_NOTICES.json`. Dear ImGui v1.91.9 and fmt 11.2.0 are MIT.
-LeviLamina 26.51.5 is used as the client SDK/runtime; its GPL and LGPL version 3
+LeviLamina Client 26.60.0 (commit f28a4b5dd6454948f163b4649238dfecabb7485f) is used as the client SDK/runtime; its GPL and LGPL version 3
 texts are under `licenses/LeviLamina/`. SymbolProvider v1.3.0 preserves its
 source-file Public Domain and mingw-w64 notice under `licenses/SymbolProvider/`.
 Header dependencies include EnTT v4.0.0, nlohmann-json v3.12.0, GSL v4.2.0,
@@ -27,7 +29,12 @@ GLM 1.0.1, expected-lite v0.8.0 and PFR 2.1.1. LevelDB 1.23 and Snappy 1.2.2
 are declared build dependencies with their BSD notices retained. The final
 link map identifies the components actually included in the DLL.
 
-The matching preferred-dependency-source archive accompanies the release.
+The tagged Praxis source, preferred build scripts, vendored source and license
+notices are publicly accessible with the client release as Corresponding Source.
+For external build dependencies, see SOURCE_DEPENDENCIES.md for exact
+pinned source locations. The release includes a separate bundle of 13 verified
+upstream source snapshots, but not every transitive build dependency. Availability and redistribution obligations for these dependencies
+remain subject to their actual linked components and applicable license terms.
 System-provided Windows/MSVC runtimes are obtained from their providers.
 
 ## Graphics discovery

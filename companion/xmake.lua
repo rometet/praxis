@@ -1,4 +1,4 @@
-add_rules("mode.debug", "mode.release")
+﻿add_rules("mode.debug", "mode.release")
 option("levimc_repo")
     set_default("https://github.com/LiteLDev/xmake-repo.git")
     set_showmenu(true)
@@ -379,8 +379,12 @@ target("PraxisCompanion")
     set_basename("PraxisCompanion")
     -- Never enable the disposable-world automatic reload canary in end-user builds.
     set_symbols("debug")
+    -- Privacy: the PE CodeView debug directory must name only the PDB, not
+    -- the build machine's absolute Windows username/workspace path.
+    -- A full local PDB is retained privately, never published with this release.
+    add_shflags("/PDBALTPATH:PraxisCompanion.pdb", {force = true})
     add_rules("@levibuildscript/linkrule")
-    add_rules("@levibuildscript/modpacker", {modVersion = "0.1.7-rc.1", modPlatform = "client"})
+    add_rules("@levibuildscript/modpacker", {modVersion = "0.1.7-rc.3", modPlatform = "client"})
     add_includedirs("src", "../src/vendor/kiero")
     add_files("src/Mod.cpp", "src/runtime/Runtime.cpp", "src/MemoryOperators.cpp")
     add_files("src/platform/Native.cpp", "src/platform/FlexiblePlacement.cpp", "src/platform/TimeChanger.cpp", "src/platform/WeatherChanger.cpp", "src/platform/EffectPatches.cpp")
