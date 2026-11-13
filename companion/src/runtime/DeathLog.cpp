@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <deque>
 #include <fstream>
@@ -263,6 +264,13 @@ bool recordDeath(map::Session const& session, map::DeathHistoryEntry entry) noex
             if (identity.persistent) queueLocked({Job::Kind::Load, identity, 0, {}});
         }
         map::Waypoint death{1, "Death", entry.x, entry.y, entry.z, entry.dimension, 0xFF55CCFFu, true};
+        auto existing = history.entries(active);
+        for (auto const& prior : existing)
+            if (prior.dimension == entry.dimension && prior.unixSeconds <= entry.unixSeconds
+                && entry.unixSeconds - prior.unixSeconds <= 2
+                && std::abs(prior.x - entry.x) < 0.01 && std::abs(prior.y - entry.y) < 0.01
+                && std::abs(prior.z - entry.z) < 0.01)
+                return false; // PlayerDieEvent and tick fallback describe one death.
         if (!history.recordAnyDimension(active, death, entry.unixSeconds)) return false;
         ++revision;
         auto entries = history.entries(active);

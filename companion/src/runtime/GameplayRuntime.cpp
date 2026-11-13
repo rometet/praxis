@@ -38,6 +38,8 @@ std::atomic_bool active{};
 MiningSwitchState mining;
 ToggleStates toggles;
 bool leftDown{};
+bool previousAlive{};
+bool aliveKnown{};
 std::uint64_t observedGeneration{};
 
 bool foreground() noexcept {
@@ -169,20 +171,40 @@ void toggleTick(LocalPlayer& player) {
         }
     } catch (...) {}
 }
+void recordPlayerDeath(LocalPlayer& local) {
+    try {
+        auto const& position = local.getPosition();
+        auto const seconds = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        map::DeathHistoryEntry entry;
+        entry.unixSeconds = static_cast<std::uint64_t>(seconds);
+        entry.dimension = static_cast<int>(local.getDimensionId());
+        entry.x = position.x;
+        entry.y = position.y;
+        entry.z = position.z;
+        auto session = map::captureSession(local, worldGeneration.load());
+        (void)recordDeath(session, entry);
+    } catch (...) {}
+}
 void tick() {
     if (!active.load(std::memory_order_acquire) || !runtimeReady.load(std::memory_order_acquire)) return;
     std::lock_guard lock(stateMutex);
     auto client = ll::service::getClientInstance();
-    if (!client) { leftDown = false; mining.clear(); toggles.clear(); return; }
+    if (!client) { leftDown = false; mining.clear(); toggles.clear(); aliveKnown = false; return; }
     auto* player = client->getLocalPlayer();
-    if (!player) { leftDown = false; mining.clear(); toggles.clear(); return; }
+    if (!player) { leftDown = false; mining.clear(); toggles.clear(); aliveKnown = false; return; }
     auto const generation = worldGeneration.load(std::memory_order_acquire);
     if (observedGeneration != generation) {
         observedGeneration = generation;
         mining.clear();
         toggles.clear();
         leftDown = false;
+        aliveKnown = false;
     }
+    bool const alive = player->isAlive();
+    if (aliveKnown && previousAlive && !alive) recordPlayerDeath(*player);
+    previousAlive = alive;
+    aliveKnown = true;
     autoToolTick(*client, *player);
     toggleTick(*player);
     // AngleSnap's rotational step snapping has no exported, safe writable
@@ -229,6 +251,7 @@ void worldExit(ll::event::ClientExitLevelEvent&) {
     mining.clear();
     toggles.clear();
     leftDown = false;
+    aliveKnown = false;
     observedGeneration = 0;
     resetDeathLog();
 }
@@ -238,18 +261,7 @@ void playerDied(ll::event::PlayerDieEvent& event) {
         if (!client) return;
         auto* local = client->getLocalPlayer();
         if (!local || static_cast<Player*>(local) != &event.self()) return;
-        auto const& position = local->getPosition();
-        auto const dimension = static_cast<int>(local->getDimensionId());
-        auto const seconds = std::chrono::duration_cast<std::chrono::seconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-        map::DeathHistoryEntry entry;
-        entry.unixSeconds = static_cast<std::uint64_t>(seconds);
-        entry.dimension = dimension;
-        entry.x = position.x;
-        entry.y = position.y;
-        entry.z = position.z;
-        auto session = map::captureSession(*local, worldGeneration.load());
-        (void)recordDeath(session, entry);
+        recordPlayerDeath(*local);
     } catch (...) {}
 }
 } // namespace
