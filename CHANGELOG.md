@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased — Tsukuyomi-inspired utility batch (2026-11-13)
+
+- Added AutoTool mining-tool selection, EffectTimer status-effect HUD, AngleSnap
+  input axis locks, ToggleSneakSprint hotkeys, AppleSkin held-food/exhaustion
+  preview, DebugScreen diagnostics and a dedicated persistent DeathLogger.
+- Added ItemScroller recipe favorites with strict-confirmation crafting-grid
+  assists through normal inventory transactions, and trade-favorite capture.
+- Added five appended feature slots (15–19); retired InventoryHUD slot 23 is
+  still never reused.
+- MaterialCollector is not implemented because LHolo exposes no public
+  material-list API; the F10 page states the limitation.
+- No new native hooks, offsets, patches or memory scans. In-game acceptance is
+  still pending; offline policy/codec/UI tests pass as listed in GOAL_STATUS.md.
+
 ## v0.1.7-rc.1 (2026-11-05) — Minecraft 1.26.60.05 verified client update
 
 - Repaired TimeChanger daytime sky and WeatherChanger/NoRender Weather visuals; validated these in-game.
