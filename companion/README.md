@@ -1,4 +1,4 @@
-# PraxisCompanion v0.1.7-rc.2
+# PraxisCompanion v0.1.7-rc.3
 
 **Minecraft Bedrock for Windows 1.26.60.05 / Windows x64 / LeviLamina Client 26.60.0 (pinned build f28a4b5d)**
 
@@ -33,6 +33,14 @@ build with recorded SHA-256.
 Extract the ZIP's top-level PraxisCompanion directory into the Minecraft version's mods folder.
 
 Repository: https://github.com/rometet/praxis
-Source release tag: **v0.1.7-rc.2**. Exact source commit and DLL SHA-256 are in the downloadable BUILD_INFO.json and the README included in the binary ZIP.
+Source release tag: **v0.1.7-rc.3**. Exact source commit and DLL SHA-256 are in the downloadable BUILD_INFO.json and the README included in the binary ZIP.
 
 Preserve the combined GPL-3.0, MPL-2.0 and third-party notices, including LICENSE_COMBINED.txt, LICENSE, THIRD_PARTY_NOTICES.md, and the upstream licenses. Not affiliated with Mojang or Microsoft.
+## Source availability and privacy (v0.1.7-rc.3)
+
+The source at https://github.com/rometet/praxis/tree/v0.1.7-rc.3,
+the matching release's source archive, and SOURCE_DEPENDENCIES.md are the
+documented rebuild route. BUILD_INFO.json records the tagged commit and DLL
+SHA-256. The binary's CodeView record uses a relative PDB name; full local
+debug symbols are not redistributed because they contain build-machine paths.
+The published DLL itself is independent of the optional PDB.

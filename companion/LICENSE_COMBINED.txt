@@ -14,12 +14,16 @@ This does not replace the original MPL license of other Praxis work or license
 unrelated mods. Third-party MIT/BSD/Apache/Zlib/OFL and SDK notices remain in
 force; the ChiyanMap-derived files remain GPL 3 and are not MPL-only.
 
-The public source tag and corresponding-source archive provide the exact
-Companion source, build scripts, terrain attribution and embedded font notices.
-The accompanying preferred-dependency-source archive provides the pinned
-third-party source and license records. See SOURCE_BUILD.md for build and
-relink instructions. Redistribute this DLL with its corresponding source and
-all applicable notices.
+The matching tagged public source and source archive provide Companion
+sources, build scripts, terrain attribution and embedded font notices.
+Pinned external dependency source locators and license records are documented
+in SOURCE_DEPENDENCIES.md (repository root). A separate attached
+source archive contains 13 pinned upstream dependency snapshots, including
+the actually used LeviLamina commit. Other unmodified/transitive dependencies
+are identified by source locators and build recipes; they are not claimed
+to be bundled inside the client ZIP. See
+SOURCE_BUILD.md for build and relink instructions. When redistributing this
+DLL, provide corresponding source access and all applicable notices.
 
 ChiyanMap: https://github.com/sunjing2/ChiyanMap
 Commit: 1785278a865e6dc93d38cea76ccbffaaf64f6659

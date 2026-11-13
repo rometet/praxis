@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.1.7-rc.3 (2026-11-13) — License, source and build privacy maintenance
+
+- Correct the pinned LeviLamina dependency notice to Client 26.60.0 and its
+  exact source commit, replacing the stale dependency source hashes with
+  verified snapshots; attach the matching source archive and 13 third-party
+  pinned source snapshots.
+- Clarify public corresponding-source and third-party dependency source
+  locations, removing the false claim that a separate full dependency-source
+  archive was attached to the previous prerelease.
+- Keep copyright/license/provenance notices for reused GPL/MPL/MIT/LGPL/OFL
+  components, including ChiyanMap and other attributed work.
+- Use a relative CodeView PDB reference in the release DLL to avoid exposing
+  the build account's Windows username and workspace path.
+- Do not publish full private build PDB symbols.
+- No gameplay or client UI behavior changes from v0.1.7-rc.2.
+
 ## v0.1.7-rc.2 (2026-11-13) — Tsukuyomi-inspired utilities
 
 - Added AutoTool, EffectTimer, AngleSnap yaw/pitch axis locks,
