@@ -83,6 +83,11 @@ struct RuntimeConfig {
     bool inventorySort{};
     InventorySortOptions inventorySortOptions{};
     bool inventoryTransfer{};
+    bool autoTool{}, effectTimer{}, angleSnap{}, toggleSneakSprint{}, debugScreen{};
+    AutoToolOptions autoToolOptions{};
+    AngleSnapOptions angleSnapOptions{};
+    ToggleSneakSprintOptions toggleSneakSprintOptions{};
+    ItemScrollerOptions itemScrollerOptions{};
     bool freelook{},freeCamera{};
     bool offhandSwap{};
     CameraOptions freelookOptions{},freeCameraOptions{};
@@ -112,6 +117,10 @@ inline bool validRuntimeConfig(RuntimeConfig const& config) noexcept {
         && validModifiers(config.zoomModifiers) && validModifiers(config.mapToggleModifiers)
         && std::all_of(config.keybindModifiers.begin(),config.keybindModifiers.end(),validModifiers)
         && validInformationOptions(config.informationOptions)
+        && validAutoToolOptions(config.autoToolOptions)
+        && validAngleSnapOptions(config.angleSnapOptions)
+        && validToggleSneakSprintOptions(config.toggleSneakSprintOptions)
+        && validItemScrollerOptions(config.itemScrollerOptions)
         && validToolProtectionOptions(config.toolProtectionOptions)
         && validWeaponSwitchOptions(config.weaponSwitchOptions)
         && validHandRestockOptions(config.handRestockOptions)
@@ -187,6 +196,22 @@ inline Settings runtimeSettings(RuntimeConfig const& config, RenderMask availabl
     result.handRestock = config.handRestockOptions;
     result.inventorySort = config.inventorySortOptions;
     result.inventoryTransfer = config.inventoryTransferOptions;
+    result.autoTool = config.autoToolOptions;
+    result.angleSnap = config.angleSnapOptions;
+    result.toggleSneakSprint = config.toggleSneakSprintOptions;
+    result.itemScroller = config.itemScrollerOptions;
+    result.effectTimer = config.informationOptions.effectTimer;
+    result.debugScreen = config.informationOptions.debugScreen;
+    result.enabled[static_cast<unsigned>(Feature::AutoTool)] = config.autoTool
+        && (availableFeatureMask & featureRegistryBit(static_cast<unsigned>(Feature::AutoTool))) != 0;
+    result.enabled[static_cast<unsigned>(Feature::EffectTimer)] = config.effectTimer
+        && (availableFeatureMask & featureRegistryBit(static_cast<unsigned>(Feature::EffectTimer))) != 0;
+    result.enabled[static_cast<unsigned>(Feature::AngleSnap)] = config.angleSnap
+        && (availableFeatureMask & featureRegistryBit(static_cast<unsigned>(Feature::AngleSnap))) != 0;
+    result.enabled[static_cast<unsigned>(Feature::ToggleSneakSprint)] = config.toggleSneakSprint
+        && (availableFeatureMask & featureRegistryBit(static_cast<unsigned>(Feature::ToggleSneakSprint))) != 0;
+    result.enabled[static_cast<unsigned>(Feature::DebugScreen)] = config.debugScreen
+        && (availableFeatureMask & featureRegistryBit(static_cast<unsigned>(Feature::DebugScreen))) != 0;
     result.enabled[static_cast<unsigned>(Feature::InventoryTransfer)] = config.inventoryTransfer
         && (availableFeatureMask & (1u << static_cast<unsigned>(Feature::InventoryTransfer))) != 0;
     result.enabled[static_cast<unsigned>(Feature::InventorySort)] = config.inventorySort

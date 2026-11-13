@@ -2,6 +2,8 @@
 #include "core/PlayerHudPolicy.h"
 #include "core/InspectorPolicy.h"
 #include "core/HudLayoutPolicy.h"
+#include "core/EffectTimerPolicy.h"
+#include "core/DebugScreenPolicy.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -20,6 +22,8 @@ inline constexpr std::array<char const*,23> informationLineNames{
 struct InformationOptions {
     PlayerHudOptions playerHud{};
     HudLayoutOptions hudLayouts{};
+    EffectTimerOptions effectTimer{};
+    DebugScreenOptions debugScreen{};
     bool infoHud{};
     bool durabilityHud{};
     bool bundlePreview{};
@@ -44,7 +48,9 @@ struct InformationOptions {
     bool operator==(InformationOptions const&) const = default;
 };
 inline bool validInformationOptions(InformationOptions const& o) noexcept {
-    return validHudLayouts(o.hudLayouts)&&validPlayerHudOptions(o.playerHud)&&std::isfinite(o.x)&&std::isfinite(o.y)&&o.x>=0&&o.y>=0&&o.x<=16384&&o.y<=16384
+    return validHudLayouts(o.hudLayouts)&&validPlayerHudOptions(o.playerHud)
+        &&validEffectTimerOptions(o.effectTimer)&&validDebugScreenOptions(o.debugScreen)
+        &&std::isfinite(o.x)&&std::isfinite(o.y)&&o.x>=0&&o.y>=0&&o.x<=16384&&o.y<=16384
         &&std::isfinite(o.durabilityX)&&std::isfinite(o.durabilityY)
         &&o.durabilityX>=0&&o.durabilityY>=0&&o.durabilityX<=16384&&o.durabilityY<=16384
         &&std::isfinite(o.scale)&&o.scale>=0.5f&&o.scale<=3.0f
@@ -71,6 +77,8 @@ struct InformationSnapshot {
     bool valid{};
     FoodSnapshot food{};
     InspectorSnapshot inspector{};
+    std::vector<EffectEntry> effects;
+    DebugSnapshot debug;
     float logicalWidth{},logicalHeight{};
     std::array<std::string,23> values;
     // Main hand, offhand, helmet, chestplate, leggings, boots. Plain owned data.
