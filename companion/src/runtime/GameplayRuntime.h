@@ -1,7 +1,12 @@
 #pragma once
 namespace praxis::companion {
-// Registers only LeviLamina public event listeners. No native hook, offset or
-// memory scan is introduced by this runtime.
+// No new native hook is registered by this runtime. It publishes a movement
+// intent to the already-installed Praxis FreeCamera input extraction bridge.
+// Caller validates that the hook is installed and the local input is current.
+struct ToggleInputIntent {
+    bool sneak{}, sprint{};
+};
+ToggleInputIntent gameplayToggleInputIntent() noexcept;
 bool startGameplayRuntime();
 bool stopGameplayRuntime() noexcept;
 void resetGameplayRuntime() noexcept;

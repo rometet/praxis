@@ -5,6 +5,7 @@
 #include "core/DebugScreenPolicy.h"
 #include "core/ItemScrollerPolicy.h"
 #include "core/PlayerHudPolicy.h"
+#include "core/FoodOutlinePolicy.h"
 #include "core/RuntimePolicy.h"
 #include <iostream>
 #include <stdexcept>
@@ -102,6 +103,34 @@ int main() {
         food.hunger = {10.0f, FoodSource::ClientAttribute};
         food.saturation = {2.0f, FoodSource::ClientAttribute};
         food.held = {true, "Bread", 5, 0.6f, false};
+        // The gold border must match the vanilla drumstick's silhouette.
+        check(foodshape::units(13.8f,0)==foodshape::Unit::Full
+            && foodshape::units(13.8f,6)==foodshape::Unit::Half
+            && foodshape::units(0.8f,0)==foodshape::Unit::None,
+            "Lamium-style saturation discards fractional units");
+        // 5x5 opaque box with transparent corners; edge count 8.
+        std::array<std::uint8_t,5*5*4> pixel{};
+        for(int y=1;y<=3;++y)for(int x=1;x<=3;++x)
+            pixel[(y*5+x)*4+3]=255;
+        auto border=foodshape::contour(pixel,5,5,{242,194,58,255},
+                                        foodshape::Portion::Full);
+        int colored=0;
+        for(std::size_t i=3;i<border.size();i+=4)
+            if(border[i]) ++colored;
+        check(colored==8,"outlined drumstick uses silhouette boundary, not rectangle");
+        check(border[(2*5+2)*4+3]==0,"saturation border keeps center transparent");
+        auto right=foodshape::contour(pixel,5,5,{242,194,58,255},
+                                      foodshape::Portion::RightHalf);
+        auto left=foodshape::contour(pixel,5,5,{255,241,184,255},
+                                     foodshape::Portion::LeftHalf);
+        check(right[(2*5+1)*4+3]==0&&right[(1*5+3)*4+3]==255,
+              "partial outline colors only the right half");
+        check(left[(2*5+3)*4+3]==0&&left[(1*5+1)*4+3]==255,
+              "missing half saturation uses left-side-only pale outline");
+        check(foodshape::contour({},0,0,{255,255,255,255},
+                                 foodshape::Portion::Full).empty(),
+              "invalid pack pixels fail closed");
+
         auto restoration = heldFoodRestoration(food, food.held);
         check(restoration && restoration->hunger == 5, "held food hunger restoration from SDK nutrition");
         check(restoration && std::abs(restoration->saturation - 5.0f) < 0.001f, "saturation restoration bounded by hunger gain");

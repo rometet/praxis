@@ -40,6 +40,7 @@
 #include "mc/client/options/IOptionRegistry.h"
 #include "mc/client/player/LocalPlayer.h"
 #include "mc/client/entity/systems/ClientInputUpdateSystem.h"
+#include "mc/client/input/ClientMoveInputHandler.h"
 #include "mc/deps/vanilla_components/MovementAbilitiesComponent.h"
 #include "mc/entity/components/MoveInputComponent.h"
 #include "mc/deps/vanilla_components/ActorDataFlagComponent.h"
@@ -393,7 +394,31 @@ LL_STATIC_HOOK(FreeCameraMovementHook,ll::memory::HookPriority::Normal,
  ActorDataFlagComponent const& flags,RawMoveInputComponent& raw,
  Optional<SneakingComponent const> sneaking,Optional<WasInWaterFlagComponent const> water){
  NativeHookLifetime::Lease lease(nativeLifetime);
- origin(abilities,input,flags,raw,sneaking,water);
+ // Reuse this ALREADY INSTALLED camera input bridge; do not install a new
+ // detour. Vanilla sees only a transient copy, not persistent synthetic bits.
+ auto intent=lease.admitted()?gameplayToggleInputIntent():ToggleInputIntent{};
+ bool applied=false;
+ if(intent.sneak||intent.sprint) {
+  auto client=ll::service::getClientInstance();
+  if(client && ClientMoveInputHandler::getMoveInput(*client)==&input) {
+   auto augmented=input;
+   auto& bits=augmented.mRawInputState->mFlagValues;
+   if(intent.sneak)bits->set(static_cast<std::size_t>(MoveInputState::Flag::SneakDown));
+   if(intent.sprint)bits->set(static_cast<std::size_t>(MoveInputState::Flag::SprintDown));
+   origin(abilities,augmented,flags,raw,sneaking,water);
+   applied=true;
+  }
+ }
+ if(!applied)origin(abilities,input,flags,raw,sneaking,water);
+ // One-shot, non-spam diagnosis for game input admission. This reports that
+ // the exact local MoveInputComponent was augmented before vanilla extraction.
+ if(intent.sneak||intent.sprint) {
+  static std::atomic_bool loggedMatch{},loggedMismatch{};
+  if(applied && !loggedMatch.exchange(true))
+   logGuiInfo("ToggleSneakSprint: native input extraction bridge MATCHED");
+  if(!applied && !loggedMismatch.exchange(true))
+   logGuiInfo("ToggleSneakSprint: input extraction bridge missing/mismatch");
+ }
  if(lease.admitted())cameraCandidateConsumeMovement(input,raw);
 }
 LL_TYPE_INSTANCE_HOOK(FreeCameraDimensionHook,ll::memory::HookPriority::Normal,

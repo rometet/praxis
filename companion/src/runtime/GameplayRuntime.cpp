@@ -31,6 +31,7 @@
 #include <cmath>
 #include <ctime>
 #include <mutex>
+#include <tuple>
 
 namespace praxis::companion {
 namespace {
@@ -39,6 +40,9 @@ std::array<ll::event::ListenerPtr, 5> listeners;
 std::atomic_bool active{};
 MiningSwitchState mining;
 ToggleStates toggles;
+// Read by Praxis's already-installed input extraction bridge. Never patch
+// the local player's stored movement component between vanilla input phases.
+std::atomic_bool desiredSneak{},desiredSprint{};
 bool leftDown{};
 bool previousAlive{};
 bool aliveKnown{};
@@ -131,84 +135,57 @@ void autoToolTick(IClientInstance& client, LocalPlayer& player) {
         mining.lastSwitchMs = now;
     } catch (...) {}
 }
-// 26.60: Do not hammer Actor::setSneaking/setSprinting every tick. Vanilla
-// recalculates Actor state from its MoveInputComponent, making those setter
-// calls flip-flop on screen and potentially send conflicting movement updates.
-// The published ClientMoveInputHandler::getMoveInput() SDK interface returns the
-// per-client component. Operate only on named public SDK flags, never offsets.
-void releaseToggle(IClientInstance& client) {
-    try {
-        if (auto* movement=ClientMoveInputHandler::getMoveInput(client)) {
-            auto& flags=movement->mFlagValues.get();
-            auto& input=movement->mInputState.get().mFlagValues.get();
-            if (toggles.appliedSneak) {
-                flags.set(static_cast<std::size_t>(MoveInputComponent::Flag::PersistSneak),false);
-                if (!(GetAsyncKeyState(VK_SHIFT)&0x8000)) {
-                    flags.set(static_cast<std::size_t>(MoveInputComponent::Flag::Sneaking),false);
-                    input.set(static_cast<std::size_t>(MoveInputState::Flag::SneakDown),false);
-                    input.set(static_cast<std::size_t>(MoveInputState::Flag::SneakToggleDown),false);
-                }
-            }
-            if (toggles.appliedSprint && !(GetAsyncKeyState(VK_CONTROL)&0x8000)) {
-                flags.set(static_cast<std::size_t>(MoveInputComponent::Flag::Sprinting),false);
-                input.set(static_cast<std::size_t>(MoveInputState::Flag::SprintDown),false);
-            }
-        }
-    } catch(...) {}
-    toggles.appliedSneak=toggles.appliedSprint=false;
+// Vanilla consumes a fresh raw input snapshot each frame. Per-tick Actor state
+// writes and edits to the persistent MoveInputComponent are overwritten.
+// Instead, arm intent here and let Praxis's pre-existing extraction hook pass a
+// temporary, augmented copy through vanilla's own input processing.
+void publishToggleIntent(bool admitted) noexcept {
+    desiredSneak.store(admitted && toggles.sneak,std::memory_order_release);
+    desiredSprint.store(admitted && toggles.sprint,std::memory_order_release);
 }
 void toggleTick(IClientInstance& client) {
-    try {
-        auto s=settings();
-        if(!s->on(Feature::ToggleSneakSprint) || !gameplayAllowed()) {
-            releaseToggle(client);
-            toggles.clear();
-            return;
-        }
-        auto const& o=s->toggleSneakSprint;
-        toggles.releaseIfPhysicallyUp(o.sneakToggleKey,
-            (GetAsyncKeyState(o.sneakToggleKey)&0x8000)!=0);
-        toggles.releaseIfPhysicallyUp(o.sprintToggleKey,
-            (GetAsyncKeyState(o.sprintToggleKey)&0x8000)!=0);
-        auto* movement=ClientMoveInputHandler::getMoveInput(client);
-        if(!movement) {
-            // Public movement component absent: fail closed; no direct Actor
-            // state writes, simulated key presses or hook fallback.
-            toggles.clear();
-            return;
-        }
-        auto& flags=movement->mFlagValues.get();
-        auto& input=movement->mInputState.get().mFlagValues.get();
-        if(o.sneakEnabled && toggles.sneak) {
-            flags.set(static_cast<std::size_t>(MoveInputComponent::Flag::Sneaking),true);
-            flags.set(static_cast<std::size_t>(MoveInputComponent::Flag::PersistSneak),true);
-            input.set(static_cast<std::size_t>(MoveInputState::Flag::SneakDown),true);
-            input.set(static_cast<std::size_t>(MoveInputState::Flag::SneakToggleDown),true);
-            toggles.appliedSneak=true;
-        } else if(toggles.appliedSneak) {
-            flags.set(static_cast<std::size_t>(MoveInputComponent::Flag::PersistSneak),false);
-            if(!(GetAsyncKeyState(VK_SHIFT)&0x8000)) {
-                flags.set(static_cast<std::size_t>(MoveInputComponent::Flag::Sneaking),false);
-                input.set(static_cast<std::size_t>(MoveInputState::Flag::SneakDown),false);
-                input.set(static_cast<std::size_t>(MoveInputState::Flag::SneakToggleDown),false);
-            }
-            toggles.appliedSneak=false;
-        }
-        if(o.sprintEnabled && toggles.sprint) {
-            flags.set(static_cast<std::size_t>(MoveInputComponent::Flag::Sprinting),true);
-            input.set(static_cast<std::size_t>(MoveInputState::Flag::SprintDown),true);
-            toggles.appliedSprint=true;
-        } else if(toggles.appliedSprint) {
-            if(!(GetAsyncKeyState(VK_CONTROL)&0x8000)) {
-                flags.set(static_cast<std::size_t>(MoveInputComponent::Flag::Sprinting),false);
-                input.set(static_cast<std::size_t>(MoveInputState::Flag::SprintDown),false);
-            }
-            toggles.appliedSprint=false;
-        }
-    } catch(...) {
-        // Incomplete SDK state should never trigger a per-tick Actor setter.
+    auto const s=settings();
+    if(!s->on(Feature::ToggleSneakSprint)) {
         toggles.clear();
+        publishToggleIntent(false);
+        return;
     }
+    auto const& o=s->toggleSneakSprint;
+    bool const admitted=gameplayAllowed();
+    auto const now=GetTickCount64();
+    // The LL KeyInputEvent can be consumed by another feature, so also poll
+    // physical key edges. consumeKeyEdge() de-duplicates the two sources.
+    for(auto const [enabled,key,modifiers,isSneak]: {
+        std::tuple<bool,int,unsigned,bool>{o.sneakEnabled,o.sneakToggleKey,o.sneakModifiers,true},
+        std::tuple<bool,int,unsigned,bool>{o.sprintEnabled,o.sprintToggleKey,o.sprintModifiers,false}
+    }) {
+        bool const down=key>0 && key<256 && (GetAsyncKeyState(key)&0x8000)!=0;
+        if(!down) {
+            toggles.consumeKeyEdge(key,false,now);
+            continue;
+        }
+        if(admitted && enabled && modifiersMatch(modifiers,currentModifiers())
+            && toggles.consumeKeyEdge(key,true,now)) {
+            if(isSneak) {
+                toggles.sneak=!toggles.sneak;
+                logGuiInfo(toggles.sneak?"ToggleSneakSprint: Sneak intent ON (polled)"
+                                            :"ToggleSneakSprint: Sneak intent OFF (polled)");
+            } else {
+                toggles.sprint=!toggles.sprint;
+                logGuiInfo(toggles.sprint?"ToggleSneakSprint: Sprint intent ON (polled)"
+                                             :"ToggleSneakSprint: Sprint intent OFF (polled)");
+            }
+        }
+    }
+    if(!admitted) {
+        publishToggleIntent(false);
+        return;
+    }
+    // Manual vanilla Shift/Ctrl should always take precedence and cancel
+    // automation, but their actual key state is never overwritten here.
+    toggles.manualOverride((GetAsyncKeyState(VK_SHIFT)&0x8000)!=0,
+        (GetAsyncKeyState(VK_CONTROL)&0x8000)!=0);
+    publishToggleIntent(true);
 }
 void angleLockTick(IClientInstance& client) {
     try {
@@ -244,18 +221,20 @@ void tick() {
     if (!active.load(std::memory_order_acquire) || !runtimeReady.load(std::memory_order_acquire)) return;
     std::lock_guard lock(stateMutex);
     auto client = ll::service::getClientInstance();
-    if (!client) { leftDown = false; mining.clear(); toggles.clear(); aliveKnown = false; return; }
+    if (!client) { leftDown = false; mining.clear(); toggles.clear(); publishToggleIntent(false); aliveKnown = false; return; }
     auto* player = client->getLocalPlayer();
-    if (!player) { leftDown = false; mining.clear(); toggles.clear(); aliveKnown = false; return; }
+    if (!player) { leftDown = false; mining.clear(); toggles.clear(); publishToggleIntent(false); aliveKnown = false; return; }
     auto const generation = worldGeneration.load(std::memory_order_acquire);
     if (observedGeneration != generation) {
         observedGeneration = generation;
         mining.clear();
         toggles.clear();
+        publishToggleIntent(false);
         leftDown = false;
         aliveKnown = false;
     }
     bool const alive = player->isAlive();
+    if (!alive) { toggles.clear(); publishToggleIntent(false); }
     if (aliveKnown && previousAlive && !alive) recordPlayerDeath(*player);
     previousAlive = alive;
     aliveKnown = true;
@@ -285,9 +264,11 @@ void key(ll::event::KeyInputEvent& event) {
         if (code == VK_SHIFT || code == VK_LSHIFT || code == VK_RSHIFT) {
             std::lock_guard lock(stateMutex);
             toggles.manualOverride(true, false);
+            publishToggleIntent(true);
         } else if (code == VK_CONTROL || code == VK_LCONTROL || code == VK_RCONTROL) {
             std::lock_guard lock(stateMutex);
             toggles.manualOverride(false, true);
+            publishToggleIntent(true);
         }
     }
     if (!event.isDown()) {
@@ -301,12 +282,20 @@ void key(ll::event::KeyInputEvent& event) {
     auto const modifiers = currentModifiers();
     std::lock_guard lock(stateMutex);
     if (o.sneakEnabled && code == o.sneakToggleKey && modifiersMatch(o.sneakModifiers, modifiers)) {
-        if (toggles.consumeKeyEdge(code, true, GetTickCount64()))
+        if (toggles.consumeKeyEdge(code, true, GetTickCount64())) {
             toggles.sneak = !toggles.sneak;
+            logGuiInfo(toggles.sneak?"ToggleSneakSprint: Sneak intent ON (LL key)"
+                                         :"ToggleSneakSprint: Sneak intent OFF (LL key)");
+        }
+        publishToggleIntent(true);
         event.cancel();
     } else if (o.sprintEnabled && code == o.sprintToggleKey && modifiersMatch(o.sprintModifiers, modifiers)) {
-        if (toggles.consumeKeyEdge(code, true, GetTickCount64()))
+        if (toggles.consumeKeyEdge(code, true, GetTickCount64())) {
             toggles.sprint = !toggles.sprint;
+            logGuiInfo(toggles.sprint?"ToggleSneakSprint: Sprint intent ON (LL key)"
+                                          :"ToggleSneakSprint: Sprint intent OFF (LL key)");
+        }
+        publishToggleIntent(true);
         event.cancel();
     }
 }
@@ -314,6 +303,7 @@ void worldExit(ll::event::ClientExitLevelEvent&) {
     std::lock_guard lock(stateMutex);
     mining.clear();
     toggles.clear();
+    publishToggleIntent(false);
     leftDown = false;
     aliveKnown = false;
     observedGeneration = 0;
@@ -328,7 +318,17 @@ void playerDied(ll::event::PlayerDieEvent& event) {
         recordPlayerDeath(*local);
     } catch (...) {}
 }
-} // namespace
+ } // namespace
+
+ToggleInputIntent gameplayToggleInputIntent() noexcept {
+    if (!runtimeReady.load(std::memory_order_acquire) ||
+        !inputAllowed.load(std::memory_order_acquire) ||
+        guiInputCaptured() || !foreground()) return {};
+    auto s=settings();
+    if(!s->on(Feature::ToggleSneakSprint))return {};
+    return {desiredSneak.load(std::memory_order_acquire),
+            desiredSprint.load(std::memory_order_acquire)};
+}
 
 bool startGameplayRuntime() {
     if (active.exchange(true)) return true;
