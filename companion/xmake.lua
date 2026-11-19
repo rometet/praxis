@@ -40,6 +40,8 @@ table.insert(integrated_sources, "src/platform/InventoryActions.cpp")
 table.insert(integrated_sources, "src/platform/ItemScrollerExtras.cpp")
 table.insert(integrated_sources, "src/platform/FastClick.cpp")
 table.insert(integrated_sources, "src/platform/FastBlockPlacement.cpp")
+table.insert(integrated_sources, "src/platform/CommandKeysRuntime.cpp")
+table.insert(integrated_sources, "src/gui/CommandKeysPage.cpp")
 
 -- Existing local page plus optional fresh-title normal application route.
 table.insert(integrated_sources, "src/resourcepacks/PackCatalog.cpp")
@@ -748,4 +750,21 @@ target("PraxisCompanionFlexibleFloorStairTests")
     set_default(false)
     add_includedirs("src")
     add_files("tests/FlexibleFloorStairTests.cpp")
+target_end()
+
+-- CommandKeys policy tests are independent of LL/BDS runtime.
+target("PraxisCompanionCommandKeysPolicyTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/CommandKeysPolicyTests.cpp")
+target_end()
+
+-- CommandKeys native event and vanilla command sender compile probe.
+target("PraxisCompanionCommandKeysNativeProbe")
+    set_kind("object")
+    set_default(false)
+    add_includedirs("src")
+    add_files("src/platform/CommandKeysRuntime.cpp")
+    add_packages("levilamina")
 target_end()

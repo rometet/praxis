@@ -1,5 +1,6 @@
 #include "gui/GuiBridge.h"
 #include "gui/ResourcePackPage.h"
+#include "gui/CommandKeysPage.h"
 #include "runtime/Runtime.h"
 #include "core/WeatherChangerDiagnostics.h"
 #include "runtime/InformationRuntime.h"
@@ -1190,6 +1191,7 @@ void drawLegacyPraxis(void* context) noexcept {
         pageButton(-8, "HUD");
         pageButton(-17, "AppleSkin");
         pageButton(-18, "ItemScroller");
+        pageButton(-19, "CommandKeys");
         pageButton(-12, "リソパ");
         pageButton(-13, "ブロック比較");
         pageButton(-7, "地図");
@@ -1333,6 +1335,8 @@ void drawLegacyPraxis(void* context) noexcept {
             ImGui::TextDisabled("専用のテキストHUDは廃止。公開SDKのゲームUI描画を利用します。");
         } else if (selected == -18) {
             drawItemScrollerPage(config, changed);
+        } else if (selected == -19) {
+            drawCommandKeysPage();
         } else if (selected == -16) {
             ImGui::TextUnformatted("死亡履歴");
             ImGui::SeparatorText("専用ログ");
