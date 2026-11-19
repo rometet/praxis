@@ -16,22 +16,38 @@
   completed successfully. It resolves official **BDS 1.26.60.6** and
   `bedrock-runtime-data 26.60.6-server.5`, and does not change the server folder.
 
-## Next actual runtime verification (not performed)
+## Sub-PC BDS runtime smoke test (2026-11-20, verified)
 
-1. Obtain/confirm explicit acceptance of Minecraft's EULA and Microsoft's
-   Privacy Policy before running lip's non-dry-run `setup`. Do not
-   silently use `--accept-eula`.
-2. Complete setup only under the isolated test folder, not under the live
-   `E:\LHolo-BDS-Throughput-Lab-20261113\server` installation.
-3. Change the disposable `server.properties` network ports to otherwise unused
-   ports, and preserve online authentication; never collide with the active BDS.
-4. Install `server/tabtps/bin/PraxisTabTpsServer` as
-   `server/mods/PraxisTabTpsServer/` and start only the disposable BDS.
-5. Verify plugin load, `PacketBase` optional capability negotiation, no
-   disconnection for an unmodded client, and a compatible 26.60.5 client
-   showing real TPS while holding Tab.
-6. Recheck server average TPS under induced load and stale handling after
-   a world disconnect. MSPT must remain unavailable until a verified
-   *complete* tick-duration measurement path exists.
+- With the user's express EULA/privacy consent, installed an isolated BDS
+  **1.26.60.6** and **LeviLamina 26.60.0** using official lip 0.41.1.
+- Isolated host folder:
+  `C:\Dev\Praxis-TabTPS-BDS-Smoke-20261120\bds` (sub-PC).
+  Source clone: `C:\Dev\Praxis-TabTPS-BDS-Smoke-20261120\source`.
+- Dedicated server ports: UDP 19160 (with v6 field 19161);
+  `online-mode=true`, `allow-list=true`, LAN discovery disabled.
+  No existing sub-PC BDS process, world or ports were modified.
+- First load attempt was correctly refused by LeviLamina because the standalone
+  server plugin lacked unified memory operators. Added
+  `server/tabtps/src/MemoryOperators.cpp` with `LL_MEMORY_OPERATORS`,
+  registered it in the xmake target, rebuilt, then restarted only the new BDS.
+- Loader then confirmed `PraxisTabTpsServer v0.1.0` loaded and enabled;
+  BDS confirmed `Server started` and `Accepting clients on [::]:19160`.
+- Added a bounded measurement heartbeat (first window, then every 30)
+  with no player identity logging. Real log from the isolated BDS:
+  `TabTPS window: observed ticks=21, elapsedMs=1031, TPS=20.00, eligibleClients=0`.
+  This verifies the server tick event -> sampler -> validated sample pipeline,
+  but **not** client packet delivery.
+- Two previously active sub-PC BDS processes remained running unchanged.
 
-DO NOT release or mark gameplay verified on the strength of the DLL builds alone.
+## Remaining before release
+
+1. Allowlist the authorized user's Xbox gamertag (currently the list is empty)
+   and verify network access to the isolated UDP 19160 server.
+2. Start a compatible Minecraft Bedrock 1.26.60.5 client with the matching
+   Praxis Companion mod and verify the optional custom packet handshake.
+3. Hold Tab to confirm real server TPS, stale/connection reset, and behavior
+   on unmodded clients, including server load and reconnect tests.
+4. MSPT stays unavailable until verified full server-frame instrumentation.
+
+Do not call the feature end-to-end tested or make a release until client
+negotiation, gameplay rendering, and disconnect checks have passed.

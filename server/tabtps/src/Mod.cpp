@@ -59,6 +59,7 @@ class TabTpsServerMod final {
     std::mutex samplerMutex_;
     wire::ServerSampler sampler_;
     std::atomic_bool enabled_{};
+    std::atomic<std::uint32_t> observedWindows_{};
     std::uint32_t epoch_{};
 
     void tick(ll::event::ServerLevelTickEvent& event) {
@@ -84,12 +85,21 @@ class TabTpsServerMod final {
 
         // Optional capability negotiation: vanilla clients and clients without
         // the exact registered packet are skipped. Never send speculative packets.
+        unsigned eligibleClients{};
         event.level().forEachPlayer([&](Player& player) -> bool {
             if (enabled_.load(std::memory_order_relaxed)
-                && SamplePacket::canSendTo(player))
+                && SamplePacket::canSendTo(player)) {
+                ++eligibleClients;
                 packet.sendTo(player);
+            }
             return true;
         });
+        // Bounded heartbeat provides a server-only measurement smoke test
+        // without requiring a player connection or logging player identities.
+        auto const windows = observedWindows_.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (self_ && (windows == 1 || windows % 30 == 0))
+            self_->getLogger().info("TabTPS window: observed ticks={}, elapsedMs={}, TPS={:.2f}, eligibleClients={}",
+                                    value->ticks, value->windowMs, wire::tps(*value), eligibleClients);
     }
 
 public:
@@ -103,6 +113,7 @@ public:
     }
     bool enable() {
         if (enabled_.load(std::memory_order_acquire)) return true;
+        observedWindows_.store(0, std::memory_order_relaxed);
         epoch_ = randomEpoch();
         if (!epoch_) {
             if (self_) self_->getLogger().error("TabTPS: random epoch generation failed");
