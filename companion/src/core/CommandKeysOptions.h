@@ -44,7 +44,6 @@ struct CommandKeyMacro {
     unsigned delayMs{250};
     unsigned repeats{1};
     bool repeatWhileHeld{true};
-    bool operator==(CommandKeyMacro const&) const = default;
 };
 inline bool validCommandKeyText(std::string_view text) noexcept {
     if (text.empty() || text.size() > commandKeyPayloadLengthMax) return false;
