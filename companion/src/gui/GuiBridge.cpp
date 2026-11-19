@@ -15,6 +15,7 @@
 #include "gui/JapaneseText.h"
 #include "platform/HandRestock.h"
 #include "platform/ItemScrollerExtras.h"
+#include "platform/QuickTradeRuntime.h"
 #include "gui/PresentationHints.h"
 #include "map/MapRuntime.h"
 #include "map/MapGraphics.h"
@@ -319,6 +320,16 @@ struct ToolPercentLabelProbe {
 void drawPreviewSettings(RuntimeConfig& config, bool& changed);
 void drawItemScrollerPage(RuntimeConfig& config, bool& changed) {
     auto& sc=config.itemScrollerOptions;
+    ImGui::SeparatorText("QuickTrade (experimental)");
+    auto quick=quickTradeOptions();
+    bool quickChanged=false;
+    quickChanged |= ImGui::Checkbox("QuickTrade: enable this session only", &quick.enabled);
+    quickChanged |= ImGui::Checkbox("QuickTrade: require double-press confirmation", &quick.requireConfirmation);
+    quickChanged |= ImGui::SliderInt("QuickTrade: maximum confirmed trades", &quick.maxTrades, 1, 64);
+    if(quickChanged) configureQuickTrade(quick);
+    ImGui::TextWrapped("Trade screen: Ctrl+Shift+K twice to begin. Default OFF; no persisted toggle. Each trade requires a server ItemStackResponse.");
+    ImGui::TextWrapped("Status: %s", quickTradeStatus().c_str());
+
     ImGui::TextUnformatted("ItemScroller / Recipe & Trade Favorites");
     ImGui::SeparatorText("最初に設定する");
     ImGui::TextWrapped("1. この画面でレシピ補助をON、適用キーを登録してください。");
