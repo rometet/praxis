@@ -21,6 +21,9 @@ int main() {
         require(tps(a) == 10.0 && mspt(a) == 43.0, "low TPS not inferred from MSPT");
         a.ticks = 21;
         require(tps(a) == 20.0, "display ceiling while server catches up");
+        Sample withoutMspt{42,3,20,1000,0};
+        require(valid(withoutMspt) && decode(encode(withoutMspt)) == withoutMspt
+            && !mspt(withoutMspt), "TPS remains available when MSPT measurement unsupported");
         for (std::string bad : std::vector<std::string>{
             "", "PTPS2|42|1|20|1000|43000", "PTPS1", "PTPS1|",
             "PTPS1|42|1|20|1000", "PTPS1|42|1|20|1000|43000|1",
@@ -29,7 +32,7 @@ int main() {
             "PTPS1|42|1||1000|43000", "PTPS1|42|1|20|0|43000",
             "PTPS1|0|1|20|1000|43000", "PTPS1|42|0|20|1000|43000",
             "PTPS1|42|1|20|249|43000", "PTPS1|42|1|20|60001|43000",
-            "PTPS1|42|1|20|1000|0", "PTPS1|42|1|20|1000|5000001",
+            "PTPS1|42|1|20|1000|5000001",
             "PTPS1|4294967296|1|20|1000|43000",
             std::string(129,'x')
         }) {

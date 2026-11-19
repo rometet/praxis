@@ -24,15 +24,16 @@ struct Sample {
 inline bool valid(Sample const& s) noexcept {
     if (!s.epoch || !s.sequence || !s.ticks || s.ticks > 1200
         || s.windowMs < 250 || s.windowMs > 60000
-        || !s.avgFrameUs || s.avgFrameUs > 5000000) return false;
+        || s.avgFrameUs > 5000000) return false;
     auto const rawTps = 1000.0 * s.ticks / s.windowMs;
     return rawTps > 0 && rawTps <= 120.0;
 }
 inline double tps(Sample const& s) noexcept {
     return valid(s) ? std::min(20.0, 1000.0 * s.ticks / s.windowMs) : 0.0;
 }
-inline double mspt(Sample const& s) noexcept {
-    return valid(s) ? static_cast<double>(s.avgFrameUs) / 1000.0 : 0.0;
+inline std::optional<double> mspt(Sample const& s) noexcept {
+    if (!valid(s) || !s.avgFrameUs) return std::nullopt;
+    return static_cast<double>(s.avgFrameUs) / 1000.0;
 }
 inline std::string encode(Sample const& s) {
     if (!valid(s)) return {};

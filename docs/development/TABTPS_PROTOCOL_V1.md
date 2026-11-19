@@ -12,7 +12,7 @@
 - `sequence`: monotonically increasing nonzero uint32 per telemetry emission, never wrapping within a connection.
 - `ticks`: completed server simulation ticks during window, 1..1200.
 - `windowMs`: elapsed monotonic-clock milliseconds, 250..60000.
-- `avgFrameUs`: independently measured mean full-frame server update duration per tick in microseconds, 1..5000000. Full-frame measurement source must be documented.
+- `avgFrameUs`: independently measured mean full-frame server update duration per tick in microseconds, 0..5000000 (0 means MSPT unavailable). Full-frame measurement source must be documented.
 - UI TPS = min(20.0, ticks*1000/windowMs) to one decimal; catch-up can exceed 20 before display cap. MSPT=avgFrameUs/1000.0 independently. NEVER compute MSPT as 1000/TPS.
 - Target emission once per 1000ms with server-side measurement. Reject malformed, duplicate, reordered, oversized, wrong-connection-generation, or changed-epoch packets.
 

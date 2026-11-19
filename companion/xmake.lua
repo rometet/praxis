@@ -757,3 +757,11 @@ target("PraxisCompanionTabTpsProtocolTests")
     add_includedirs("src")
     add_files("tests/TabTpsProtocolTests.cpp")
 target_end()
+
+-- Server-side pure measurement policy tests; no BDS process required.
+target("PraxisCompanionTabTpsServerSamplerTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/TabTpsServerSamplerTests.cpp")
+target_end()
