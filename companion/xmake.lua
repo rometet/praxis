@@ -749,3 +749,11 @@ target("PraxisCompanionFlexibleFloorStairTests")
     add_includedirs("src")
     add_files("tests/FlexibleFloorStairTests.cpp")
 target_end()
+
+-- Pure QuickTrade policy tests (no game process / no network required).
+target("PraxisCompanionQuickTradePolicyTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/QuickTradePolicyTests.cpp")
+target_end()
