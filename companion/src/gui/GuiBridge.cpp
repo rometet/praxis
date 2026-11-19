@@ -8,6 +8,7 @@
 #include "render/Renderer.h"
 #include "render/ShulkerPreview.h"
 #include "render/InformationHud.h"
+#include "platform/TabTpsClient.h"
 #include "render/PlayerHud.h"
 #include "gui/HudTools.h"
 #include "gui/JapaneseText.h"
@@ -1659,6 +1660,7 @@ bool hudNeeded() noexcept {
     return frameHudNeeded.load(std::memory_order_acquire)
         || shulkerPreviewNeeded()
         || informationHudNeeded()
+        || tabtps::tabHudNeeded()
         || effectHudNeeded()
         || debugHudNeeded()
         || foodHudNeeded()
@@ -1731,6 +1733,7 @@ void drawChunkHudContent(void* context) noexcept {
         if (sharedFontRequired.load(std::memory_order_acquire) && !sharedLegacyUiFontReady(context)) return;
         LegacyUiScope legacyScope;
         if (informationHudNeeded()) drawInformationHud(context);
+        if (tabtps::tabHudNeeded()) tabtps::drawTabHud(context);
         if (effectHudNeeded()) drawEffectHud(context);
         if (debugHudNeeded()) drawDebugHud(context);
         // AppleSkin uses the game HUD texture renderer (AfterUIRenderEvent),

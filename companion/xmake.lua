@@ -40,6 +40,8 @@ table.insert(integrated_sources, "src/platform/InventoryActions.cpp")
 table.insert(integrated_sources, "src/platform/ItemScrollerExtras.cpp")
 table.insert(integrated_sources, "src/platform/FastClick.cpp")
 table.insert(integrated_sources, "src/platform/FastBlockPlacement.cpp")
+table.insert(integrated_sources, "src/platform/TabTpsClient.cpp")
+table.insert(integrated_sources, "src/render/TabTpsHud.cpp")
 
 -- Existing local page plus optional fresh-title normal application route.
 table.insert(integrated_sources, "src/resourcepacks/PackCatalog.cpp")
@@ -764,4 +766,13 @@ target("PraxisCompanionTabTpsServerSamplerTests")
     set_default(false)
     add_includedirs("src")
     add_files("tests/TabTpsServerSamplerTests.cpp")
+target_end()
+
+-- Build-only native integration probe: catches pinned LL packet/ImGui API drift.
+target("PraxisCompanionTabTpsNativeProbe")
+    set_kind("object")
+    set_default(false)
+    add_includedirs("src")
+    add_files("src/platform/TabTpsClient.cpp", "src/render/TabTpsHud.cpp")
+    add_packages("levilamina", "imgui")
 target_end()
