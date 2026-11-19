@@ -749,3 +749,11 @@ target("PraxisCompanionFlexibleFloorStairTests")
     add_includedirs("src")
     add_files("tests/FlexibleFloorStairTests.cpp")
 target_end()
+
+-- CommandKeys policy tests are independent of LL/BDS runtime.
+target("PraxisCompanionCommandKeysPolicyTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/CommandKeysPolicyTests.cpp")
+target_end()
