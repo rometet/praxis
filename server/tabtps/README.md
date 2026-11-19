@@ -24,8 +24,9 @@ Expected packaged output: `bin/PraxisTabTpsServer/` with
 `PraxisTabTpsServer.dll` and `manifest.json`.
 
 Install the entire directory under the dedicated server's LeviLamina
-`plugins` directory **only after confirming the installed server runtime
-versions match**. Keep it out of active/production BDS until smoke tests pass.
+`mods/PraxisTabTpsServer/` directory (LeviLamina 26.60+ uses `mods/`)
+**only after confirming the installed server runtime versions match**.
+Keep it out of active/production BDS until smoke tests pass.
 
 ## Data contract
 
