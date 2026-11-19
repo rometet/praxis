@@ -69,6 +69,7 @@
 !/server/tabtps/src/
 /server/tabtps/src/*
 !/server/tabtps/src/Mod.cpp
+!/server/tabtps/src/MemoryOperators.cpp
 
 # Heavy/generated files under the included trees.
 **/build/
