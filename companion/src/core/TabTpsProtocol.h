@@ -10,6 +10,8 @@
 
 namespace praxis::companion::tabtps {
 inline constexpr std::string_view wirePrefix{"PTPS1"};
+inline constexpr std::string_view customPacketId{"praxis:tps_sample"};
+inline constexpr unsigned customPacketVersion = 1;
 inline constexpr std::uint64_t freshnessMs = 2500;
 
 struct Sample {

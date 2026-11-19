@@ -18,8 +18,8 @@ Receiver receiver;
 std::uint64_t activeGeneration{};
 
 struct SamplePacket final : ll::network::PacketBase<SamplePacket> {
-    static constexpr std::string_view CustomPacketId{"praxis:tps_sample"};
-    static constexpr uint PacketVersion{1};
+    static constexpr std::string_view CustomPacketId{customPacketId};
+    static constexpr uint PacketVersion{customPacketVersion};
     static constexpr ll::network::PacketSide Side{ll::network::PacketSide::Client};
     static constexpr bool Optional{true};
     std::string wire;
