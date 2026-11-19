@@ -23,6 +23,6 @@ Potential compatibility and safety issue: native controller may expose
 preview-only result items that do not appear in getItemStack(output),
 in which case this prototype refuses to act, by design.
 
-Native unit build and full DLL integration need a pinned client build.
+Main-PC xmake native probe: PASS; policy checks: 289 PASS; full client PraxisCompanion.dll build: PASS (2026-11-19).
 Sub-PC xmake update failed due blocked access to gitlab.com; do not disable
 package verification or edit the user's active Minecraft/BDS runtime.
