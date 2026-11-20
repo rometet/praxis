@@ -17,6 +17,10 @@ int main() {
         require(encode(a) == "PTPS1|42|1|20|1000|43000", "stable wire");
         require(decode(encode(a)) == a, "roundtrip");
         require(tps(a) == 20.0 && mspt(a) == 43.0, "TPS/MSPT independently measured");
+        Sample liveMeasured{42,2,21,1016,672};
+        require(decode(encode(liveMeasured)) == liveMeasured, "measured simulation MSPT roundtrip");
+        require(mspt(liveMeasured) && *mspt(liveMeasured) > 0.67
+            && *mspt(liveMeasured) < 0.68, "sub-millisecond server work survives wire codec");
         a.ticks = 10;
         require(tps(a) == 10.0 && mspt(a) == 43.0, "low TPS not inferred from MSPT");
         a.ticks = 21;

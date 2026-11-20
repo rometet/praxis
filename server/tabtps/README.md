@@ -38,15 +38,22 @@ Keep it out of active/production BDS until smoke tests pass.
 - Unified LL memory operators in `src/MemoryOperators.cpp` are required for
   the server loader to accept this plugin.
 - Low-frequency tick sampler heartbeat: first sample and every 30 windows;
-  logs TPS/ticks/elapsed/eligible client count, never player identities.
-- `avgFrameUs=0`: **MSPT unavailable**, not a guessed number; authentic MSPT
-  needs a verified complete server-frame instrumentation hook.
+  logs TPS/simulation MSPT/ticks/elapsed/eligible client count, never player identities.
+- **MSPT is now measured** by surrounding the actual `ServerLevel::_subTick`
+  invocation with `std::chrono::steady_clock`. This is the elapsed
+  simulation-tick processing time, not the 50 ms tick interval; it does not
+  include network work and other tasks outside the level tick.
+- `avgFrameUs` holds the mean measured simulation tick duration in microseconds;
+  0 means genuinely unavailable, never a fabricated value.
+- Both metrics travel together in the optional `praxis:tps_sample` v1 packet,
+  without a client protocol version change.
 
 ## Still unverified
 
-Server plugin load, enable, and tick sampling are **verified on the sub-PC**
-with BDS 1.26.60.6 and LeviLamina 26.60.0. First sample: 21 observed ticks
-in 1031 ms (TPS 20.00); no compatible clients joined (eligibleClients=0).
+Server plugin load, enable, and **real MSPT measurement** are verified on the
+sub-PC with BDS 1.26.60.6 and LeviLamina 26.60.0. First measured sample:
+21 completed ticks in 1016 ms (TPS 20.00) and 0.672 ms average simulation
+work per tick; no compatible clients joined yet (eligibleClients=0).
 A live client join + custom-packet negotiation/render test has **not yet**
 been performed. Do not release until that test passes.
 
