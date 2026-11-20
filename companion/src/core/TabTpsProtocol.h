@@ -19,7 +19,7 @@ struct Sample {
     std::uint32_t sequence{};       // increment once per measurement
     std::uint32_t ticks{};          // observed server simulation ticks
     std::uint32_t windowMs{};       // elapsed steady-clock measurement window
-    std::uint32_t avgFrameUs{};     // mean measured FULL server frame time, microseconds
+    std::uint32_t avgFrameUs{};     // mean measured simulation tick work (ServerLevel::_subTick) in microseconds; 0 means unavailable
     bool operator==(Sample const&) const = default;
 };
 

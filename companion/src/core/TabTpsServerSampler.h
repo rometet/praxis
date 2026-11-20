@@ -1,6 +1,7 @@
 #pragma once
 // Reusable server-side 1Hz sampler. No BDS hooks: caller supplies completed
-// simulation ticks and verified full-frame duration on the server thread.
+// simulation ticks and measured per-tick busy processing duration on the server thread.
+// Do not infer MSPT from tick callback intervals (includes idle waiting).
 #include "core/TabTpsProtocol.h"
 #include <cstdint>
 #include <limits>
@@ -15,14 +16,14 @@ public:
         startWindow(monotonicNowMs);
     }
     bool completedTick(std::uint64_t monotonicNowMs,
-                       std::optional<std::uint32_t> fullFrameUs = std::nullopt) noexcept {
+                       std::optional<std::uint32_t> measuredTickUs = std::nullopt) noexcept {
         if (!epoch_ || monotonicNowMs < windowStartMs_) return false;
         if (tickCount_ == 1200) { overflow_ = true; return false; }
         ++tickCount_;
-        if (!fullFrameUs || *fullFrameUs == 0 || *fullFrameUs > 5000000) {
+        if (!measuredTickUs || *measuredTickUs == 0 || *measuredTickUs > 5000000) {
             allFramesMeasured_ = false;
         } else {
-            frameSumUs_ += *fullFrameUs;
+            frameSumUs_ += *measuredTickUs;
         }
         return true;
     }

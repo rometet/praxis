@@ -1,53 +1,56 @@
-# TabTPS isolated runtime smoke-test readiness — 2026-11-20
+# TabTPS isolated runtime and MSPT verification — 2026-11-20
 
-## Verified
+## Build and version constraints
 
-- Client-side LL 26.60.x `PraxisCompanion.dll` built with optional TabTPS packet/HUD.
-- Server-only `PraxisTabTpsServer.dll` built against LL **26.60.0 server**
-  and `bedrockdata v26.60.6-server.5`. Its package manifest is `platform: server`.
-- Shared protocol tests: 45 PASS; server tick-sampling policy: 1257 PASS.
-- Client + server packet IDs and versions are now the same shared C++ constants.
-- Active existing BDS is **1.26.63.1** and must not be interrupted or
-  used to test the 1.26.60.6 server plugin.
-- Separate folder prepared at `E:\Praxis-TabTPS-Smoke-20261120`.
-- Official lip 0.41.1 portable ZIP downloaded and SHA256-verified:
-  `ddfa736dbf543b5f542d9a35f501cd6a9d549722b89933b93c786c2c54d91165`.
-- `lip setup --game 1.26.60 --loader levilamina@26.60.0 --dry-run`
-  completed successfully. It resolves official **BDS 1.26.60.6** and
-  `bedrock-runtime-data 26.60.6-server.5`, and does not change the server folder.
+- Client: Minecraft Bedrock 1.26.60.5, LeviLamina 26.60.0.
+- Isolated sub-PC server: official BDS **1.26.60.6**, LeviLamina **26.60.0**,
+  bedrockdata **v26.60.6-server.5**.
+- Server plugin: `server/tabtps/bin/PraxisTabTpsServer/PraxisTabTpsServer.dll`.
+- The same optional `praxis:tps_sample` packet ID, version 1, and
+  `PTPS1|epoch|sequence|ticks|windowMs|avgFrameUs` codec are used on both sides.
+  Wire compatibility was maintained while adding measured MSPT.
+- Existing main-PC production/development BDS is independent and must not be touched.
 
-## Sub-PC BDS runtime smoke test (2026-11-20, verified)
+## Isolated server verification
 
-- With the user's express EULA/privacy consent, installed an isolated BDS
-  **1.26.60.6** and **LeviLamina 26.60.0** using official lip 0.41.1.
-- Isolated host folder:
-  `C:\Dev\Praxis-TabTPS-BDS-Smoke-20261120\bds` (sub-PC).
-  Source clone: `C:\Dev\Praxis-TabTPS-BDS-Smoke-20261120\source`.
-- Dedicated server ports: UDP 19160 (with v6 field 19161);
-  `online-mode=true`, `allow-list=true`, LAN discovery disabled.
-  No existing sub-PC BDS process, world or ports were modified.
-- First load attempt was correctly refused by LeviLamina because the standalone
-  server plugin lacked unified memory operators. Added
-  `server/tabtps/src/MemoryOperators.cpp` with `LL_MEMORY_OPERATORS`,
-  registered it in the xmake target, rebuilt, then restarted only the new BDS.
-- Loader then confirmed `PraxisTabTpsServer v0.1.0` loaded and enabled;
-  BDS confirmed `Server started` and `Accepting clients on [::]:19160`.
-- Added a bounded measurement heartbeat (first window, then every 30)
-  with no player identity logging. Real log from the isolated BDS:
-  `TabTPS window: observed ticks=21, elapsedMs=1031, TPS=20.00, eligibleClients=0`.
-  This verifies the server tick event -> sampler -> validated sample pipeline,
-  but **not** client packet delivery.
-- Two previously active sub-PC BDS processes remained running unchanged.
+- The user confirmed the EULA/privacy acceptance and approved a **sub-PC**
+  test BDS; setup was performed with official lip 0.41.1.
+- Server test folder:
+  `C:\Dev\Praxis-TabTPS-BDS-Smoke-20261120\bds`.
+- Dedicated server uses port **19160**, `online-mode=true`,
+  `allow-list=true` (authorized test player registered privately),
+  `enable-lan-visibility=false`.
+- Tailscale address on sub-PC **100.112.68.118**; main-PC TCP connection to
+  the server port worked. This does not establish a successful game handshake.
+- A standalone server plugin initially missed LeviLamina's unified memory
+  operators; fixed with `server/tabtps/src/MemoryOperators.cpp`.
+- Actual loader logs confirmed successful plugin load, enable, and BDS startup.
+  Two previously running sub-PC BDS processes were not modified.
+- Initial iteration sampled only TPS and correctly left MSPT unavailable.
+  Attempting to hook `ServerInstance::$onTick` failed to link on the pinned
+  BDS SDK, so that unsupported instrumentation path was **not shipped**.
+- **Measured simulation MSPT** now wraps the actual virtual
+  `ServerLevel::$_subTick` function with `std::chrono::steady_clock` before
+  and after calling `origin()`. This excludes idle time between ticks,
+  counts only completed simulation ticks, and records their real durations.
+  It is scoped to the level simulation work, **not full outer BDS frame time**
+  (e.g. network operations occurring outside that function).
+- Live sample from the isolated BDS log:
+  `TabTPS window: ticks=21, windowMs=1016, TPS=20.00, simulationMSPT=0.672ms, measured=true, eligibleClients=0, totalTicks=21`.
+- Both metrics are produced by the same bounded 1-second sampler.
+  An unavailable/invalid duration is encoded as zero, not inferred from TPS.
 
-## Remaining before release
+## Test requirements before release
 
-1. Allowlist the authorized user's Xbox gamertag (currently the list is empty)
-   and verify network access to the isolated UDP 19160 server.
-2. Start a compatible Minecraft Bedrock 1.26.60.5 client with the matching
-   Praxis Companion mod and verify the optional custom packet handshake.
-3. Hold Tab to confirm real server TPS, stale/connection reset, and behavior
-   on unmodded clients, including server load and reconnect tests.
-4. MSPT stays unavailable until verified full server-frame instrumentation.
+1. Rebuild and install the unified PraxisCompanion client DLL containing
+   TabTPS, CommandKeys and QuickTrade; keep previous DLL as rollback backup.
+2. Re-run the transport protocol, sampler, macro policy and trade policy
+   tests, plus native compile probes for the combined client.
+3. Connect one authorized client to the isolated BDS, verify optional packet
+   negotiation and correct TPS/MSPT rendering while holding Tab.
+4. Verify the HUD clears on disconnect, does not display stale values,
+   and does not crash when connecting to a server without the plugin.
+5. Verify CommandKeys and QuickTrade in their real UIs separately.
+   These features default OFF; compile/unit checks are not gameplay proof.
 
-Do not call the feature end-to-end tested or make a release until client
-negotiation, gameplay rendering, and disconnect checks have passed.
+Do not merge or release the integration PR until real-client tests succeed.
