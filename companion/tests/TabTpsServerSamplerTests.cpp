@@ -50,6 +50,16 @@ int main() {
         require(!sampler.poll(1000), "overflow rejects entire sample");
         require(sampler.completedTick(1001,2000), "next window usable");
         require(sampler.poll(2000).has_value(), "recovery after overflow");
+        // Simulation processing time differs from 50 ms between tick starts.
+        sampler.start(16,0);
+        for (int i=1;i<=20;++i)
+            require(sampler.completedTick(i*50, i%2 ? 1000 : 2000), "real work durations accepted");
+        auto measured=sampler.poll(1000);
+        require(measured && measured->ticks==20 && measured->windowMs==1000,
+            "simulation count and elapsed time are independent");
+        require(measured->avgFrameUs==1500 && mspt(*measured)==1.5,
+            "mean MSPT is measured processing duration, never tick interval");
+        require(tps(*measured)==20.0, "TPS independent from 1.5ms busy MSPT");
         sampler.start(0,0);
         require(!sampler.completedTick(1,10000) && !sampler.poll(1000), "zero epoch prohibited");
         sampler.start(15,0);
