@@ -46,12 +46,12 @@ void drawTabHud(void* imguiContext) noexcept {
             if (sample.status == Status::Fresh) {
                 ImGui::Text("Server TPS: %.1f", sample.currentTps);
                 if (sample.currentMspt)
-                    ImGui::Text("Server MSPT: %.1f ms", *sample.currentMspt);
+                    ImGui::Text("Server MSPT (sim): %.2f ms", *sample.currentMspt);
                 else
-                    ImGui::TextUnformatted("Server MSPT: --");
+                    ImGui::TextUnformatted("Server MSPT (sim): --");
             } else {
                 ImGui::TextUnformatted("Server TPS: --");
-                ImGui::TextUnformatted("Server MSPT: --");
+                ImGui::TextUnformatted("Server MSPT (sim): --");
                 ImGui::TextDisabled(sample.status == Status::Stale
                     ? "Server telemetry stale" : "Server companion unavailable");
             }
