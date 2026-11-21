@@ -132,3 +132,44 @@ requires live 26.60.5 game; [NOT IMPLEMENTED] no claim of support.
   or other projects. No private worlds, Xbox player identifiers or binaries
   belong in public source control.
 - Remain draft/unreleased until authorized-player live acceptance tests pass.
+
+## HUD layout regression: transparent Java-style rendering (2026-11-21)
+
+User live screenshots confirmed a previous source-style client build could
+show all telemetry but rendered black rectangular background panels, a
+bottom Action Bar over hotbar slots, and no native player rows on Tab.
+Those are real client visual bugs, not telemetry measurement failures.
+
+- Bedrock-specific UI fix: render gradient glyphs directly to the ImGui
+  foreground draw list, using identical per-glyph advance calculation for
+  both text width and positions. Clamp text within the viewport, auto-fit
+  very long module lists, and apply a one-pixel shadow for readability.
+  Text has no dark rectangular background and captures no keyboard input.
+- Tab: restore the existing Deesse pack's *pre-deletion* player list binding
+  from the verified local backup. Opt out of the earlier vanilla Tab
+  suppression with `hidePlayers=0` (default for new users is now false).
+  Telemetry stays on an independent Bedrock overlay below the original
+  360-pixel-tall player-list layout, rather than pretending to be Java's
+  actual network-sent player-list footer.
+- Action Bar: transparent text is positioned above the native hotbar
+  and health indicators instead of over the inventory slots.
+- Boss Bar: original color, fill and 20-notch math remains intact.
+  Its overlay is hidden temporarily while Tab is held to avoid covering
+  the native player list, then resumes when Tab is released.
+- All earlier user toggles and module CSV values remain saved. For this
+  authorized local installation only, hidePlayers was changed to zero
+  and fontScale to 1.25. Installed binaries and pack file were swapped
+  atomically with rollback backups. No unrelated resource-pack content
+  or BDS files were changed.
+
+Verification: combined Windows client release DLL built successfully;
+all 1,769 deterministic policy/source-port checks and the three native
+compile probes passed. Local installed DLL SHA256 matches the build.
+The resource pack backup/current comparison proved only a single
+101-character missing player-list binding, which was precisely restored.
+
+**Still requires live client recheck after THIS revision**: visible native
+player list while holding Tab, unclipped translucent-free TPS/MSPT text,
+Action Bar clear of the hotbar, boss bar resume on Tab release, and no
+side effects to other HUD mods. Do not mark visual acceptance passed
+until that screenshot/run has been inspected.

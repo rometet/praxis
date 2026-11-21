@@ -22,7 +22,7 @@ struct DisplaySettings{
     bool tabEnabled=false;
     bool actionbarEnabled=false;
     bool bossbarEnabled=false;
-    bool customOverlayNoPlayerList=true;
+    bool customOverlayNoPlayerList=false;
     std::string header="";
     std::string footer="tps,mspt";
     std::string actionbar="tps,mspt,ping";
@@ -31,7 +31,7 @@ struct DisplaySettings{
     v2::Fill fill=v2::Fill::Mspt;
     int notches=20;
     float tabYOffset=22.f;
-    float fontScale=1.0f;
+    float fontScale=1.25f;
 };
 struct Store{
     std::mutex mutex;
@@ -143,69 +143,101 @@ std::vector<v2::Colored> renderLine(
 ImVec4 color(std::uint32_t c){
     return {float((c>>16)&255)/255.f,float((c>>8)&255)/255.f,float(c&255)/255.f,1.f};
 }
-void gradientLine(std::vector<v2::Colored> const& line){
-    auto plain=v2::plain(line);
-    if(plain.empty())return;
-    auto* draw=ImGui::GetWindowDrawList();
-    auto pos=ImGui::GetCursorScreenPos();
-    float width=ImGui::CalcTextSize(plain.c_str()).x;
-    float available=ImGui::GetContentRegionAvail().x;
-    pos.x+=std::max(0.f,(available-width)/2.f);
-    for(auto const& ch:line){
-        char text[2]={ch.c,0};
-        draw->AddText(pos,ImGui::GetColorU32(color(ch.rgb)),text);
-        pos.x+=ImGui::CalcTextSize(text).x;
+// Java-style, unobtrusive, transparent HUD. Draw straight into ImGui's
+// foreground list: a layout Window (even AlwaysAutoResize + NoBackground)
+// clips per-character gradient text and creates unwanted dark rectangles.
+// Text and its one-pixel Minecraft-like shadow never capture input.
+struct TextGeometry {
+    float width{};
+    float height{};
+};
+TextGeometry drawColoredLine(ImDrawList* draw, ImVec2 center, float y,
+                             std::vector<v2::Colored> const& line,
+                             float scale, ImGuiViewport const& view) {
+    if(line.empty())return {};
+    auto* font=ImGui::GetFont();
+    float fontSize=ImGui::GetFontSize()*std::clamp(scale,.65f,2.0f);
+    if(!font || !(fontSize>0.f) || !(font->FontSize>0.f))return {};
+    auto measure=[&](float size){
+        float advance=0.f;
+        for(auto const& c:line)
+            advance+=font->GetCharAdvance(static_cast<unsigned char>(c.c))
+                     *size/font->FontSize;
+        return advance;
+    };
+    float width=measure(fontSize);
+    // The exact same glyph advances are used for measuring AND drawing,
+    // so letters never extend beyond their reserved, viewport-clamped area.
+    const float limit=std::max(32.f,view.Size.x-24.f);
+    if(width>limit && width>0.f){
+        fontSize*=limit/width;
+        width=measure(fontSize);
     }
-    // Register the ACTUAL rendered text width with ImGui layout. A custom
-    // draw-list AddText call does not participate in AlwaysAutoResize sizing.
-    // Using GetContentRegionAvail() here creates a self-referential narrow
-    // window and clips the right-hand modules (notably MSPT).
-    ImGui::Dummy({width,ImGui::GetTextLineHeight()});
+    float const minX=view.Pos.x+12.f;
+    float const maxX=std::max(minX,view.Pos.x+view.Size.x-12.f-width);
+    float x=std::clamp(center.x-width*.5f,minX,maxX);
+    auto const fontScale=fontSize/font->FontSize;
+    for(auto const& ch:line){
+        const char glyph[2]={ch.c,0};
+        if(ch.c!=' '){
+            draw->AddText(font,fontSize,{x+1.f,y+1.f},
+                IM_COL32(0,0,0,180),glyph,glyph+1);
+            draw->AddText(font,fontSize,{x,y},
+                ImGui::GetColorU32(color(ch.rgb)),glyph,glyph+1);
+        }
+        x+=font->GetCharAdvance(static_cast<unsigned char>(ch.c))*fontScale;
+    }
+    return {width,fontSize+3.f};
 }
 void displayWindow(char const* key,ImVec2 anchor,float y,
     std::vector<v2::Colored> const& header,
     std::vector<v2::Colored> const& footer,float opacity,float scale,
     bool boss=false,v2::Snapshot const* sample=nullptr,
     v2::Fill fill=v2::Fill::Mspt,int segments=20) {
-    auto const size=ImGui::GetIO().DisplaySize;
-    if(!(size.x>0.f&&size.y>0.f))return;
-    ImGui::SetNextWindowPos({size.x*anchor.x,y},ImGuiCond_Always,{anchor.x,0.f});
-    ImGui::SetNextWindowBgAlpha(opacity);
-    constexpr auto flags=ImGuiWindowFlags_NoDecoration
-        |ImGuiWindowFlags_AlwaysAutoResize |ImGuiWindowFlags_NoInputs
-        |ImGuiWindowFlags_NoNav|ImGuiWindowFlags_NoMove
-        |ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoFocusOnAppearing;
-    if(ImGui::Begin(key,nullptr,flags)){
-        ImGui::SetWindowFontScale(scale);
-        if(!header.empty())gradientLine(header);
-        if(!footer.empty())gradientLine(footer);
-        if(boss){
-            auto const grade=sample?v2::bossGrade(*sample,fill):v2::Grade::Missing;
-            auto const progress=sample?v2::bossProgress(*sample,fill):std::optional<float>{};
-            const auto [a,b]=v2::ramp(grade);
-            const auto rgb=(grade==v2::Grade::Good)?v2::green
-                :(grade==v2::Grade::Medium)?v2::yellow
-                :(grade==v2::Grade::Low)?v2::red:v2::gray;
-            auto* draw=ImGui::GetWindowDrawList();
-            const float width=std::max(190.f,ImGui::GetContentRegionAvail().x);
-            auto top=ImGui::GetCursorScreenPos();
-            auto const chunks=segments<=0?1:segments;
-            const float gap=segments<=0?0.f:2.f;
-            const float w=(width-gap*(chunks-1))/chunks;
-            auto filled=progress?*progress:0.f;
-            for(int i=0;i<chunks;++i){
-                float x=top.x+i*(w+gap);
-                draw->AddRectFilled({x,top.y},{x+w,top.y+8},
-                    ImGui::GetColorU32({.22f,.22f,.22f,.9f}),2.f);
-                float local=std::clamp(filled*chunks-i,0.f,1.f);
-                if(local>0&&progress)
-                    draw->AddRectFilled({x,top.y},{x+w*local,top.y+8},
-                        ImGui::GetColorU32(color(rgb)),2.f);
-            }
-            ImGui::Dummy({width,8.f});
-        }
+    (void)key;
+    (void)opacity; // The requested Java-style text has no panel background.
+    auto* viewport=ImGui::GetMainViewport();
+    if(!viewport || !(viewport->Size.x>0.f&&viewport->Size.y>0.f))return;
+    auto* draw=ImGui::GetForegroundDrawList();
+    auto const center=ImVec2{viewport->Pos.x+viewport->Size.x*anchor.x,0.f};
+    float currentY=viewport->Pos.y+std::clamp(y,6.f,
+        std::max(6.f,viewport->Size.y-24.f));
+    float lineWidth=0.f;
+    if(!header.empty()){
+        auto g=drawColoredLine(draw,center,currentY,header,scale,*viewport);
+        currentY+=g.height;
+        lineWidth=std::max(lineWidth,g.width);
     }
-    ImGui::End();
+    if(!footer.empty()){
+        auto g=drawColoredLine(draw,center,currentY,footer,scale,*viewport);
+        currentY+=g.height;
+        lineWidth=std::max(lineWidth,g.width);
+    }
+    if(!boss)return;
+    // Original Java semantics: notched bar fill and grade color; unlike
+    // Java's title, the label is drawn without a rectangular background.
+    const auto grade=sample?v2::bossGrade(*sample,fill):v2::Grade::Missing;
+    const auto progress=sample?v2::bossProgress(*sample,fill):std::optional<float>{};
+    const auto rgb=(grade==v2::Grade::Good)?v2::green
+        :(grade==v2::Grade::Medium)?v2::yellow
+        :(grade==v2::Grade::Low)?v2::red:v2::gray;
+    float const width=std::min(std::max(190.f,lineWidth),
+                               std::max(32.f,viewport->Size.x-24.f));
+    auto const chunks=segments<=0?1:segments;
+    float const gap=segments<=0?0.f:2.f;
+    float const barW=std::max(1.f,(width-gap*(chunks-1))/chunks);
+    float const left=center.x-width*.5f;
+    if(currentY+9.f>viewport->Pos.y+viewport->Size.y-4.f)return;
+    const auto fraction=progress?std::clamp(*progress,0.f,1.f):0.f;
+    for(int i=0;i<chunks;++i){
+        const float x=left+i*(barW+gap);
+        draw->AddRectFilled({x,currentY},{x+barW,currentY+8.f},
+                            IM_COL32(48,48,48,135),1.f);
+        float const local=std::clamp(fraction*chunks-i,0.f,1.f);
+        if(progress&&local>0.f)
+            draw->AddRectFilled({x,currentY},{x+barW*local,currentY+8.f},
+                                ImGui::GetColorU32(color(rgb)),1.f);
+    }
 }
 bool inputCsv(char const* label,std::string& current,bool& changed){
     char buffer[192]{};
@@ -250,23 +282,33 @@ void drawTabHud(void* ctx) noexcept {
             // native Bedrock player list suppression requires input hook audit.
             auto head=renderLine(view,cfg.header,cfg.separator);
             auto foot=renderLine(view,cfg.footer,cfg.separator);
-            if(!head.empty()||!foot.empty())
-                displayWindow("TabTPS List##tabtps", {.5f,0.f},cfg.tabYOffset,
-                    head,foot,.67f,cfg.fontScale);
+            if(!head.empty()||!foot.empty()){
+                // Déesse/Bedrock's native list may occupy up to 360 px.
+                // Keep the Java-style telemetry footer BELOW that list.
+                const float y=cfg.tabYOffset
+                    +(cfg.customOverlayNoPlayerList?0.f:365.f);
+                displayWindow("TabTPS List##tabtps", {.5f,0.f},y,
+                    head,foot,0.f,cfg.fontScale);
+            }
         }
         if(cfg.actionbarEnabled){
             auto list=renderLine(view,cfg.actionbar,cfg.separator);
             if(!list.empty()){
-                const auto height=ImGui::GetIO().DisplaySize.y;
+                const auto* viewport=ImGui::GetMainViewport();
+                const float height=viewport?viewport->Size.y:0.f;
+                // Native hotbar/health usually occupy the bottom ~130 px.
+                // Place Java-like action text ABOVE them, never over slots.
                 displayWindow("Action Bar##tabtps", {.5f,0.f},
-                    std::max(0.f,height-110.f),{},list,.45f,cfg.fontScale);
+                    std::max(20.f,height-215.f),{},list,0.f,cfg.fontScale);
             }
         }
-        if(cfg.bossbarEnabled){
+        // The native player list uses the same top-center area as the
+        // original boss bar. Suppress the boss HUD only while Tab is held;
+        // its user-enabled state is kept intact and restored on key release.
+        if(cfg.bossbarEnabled && !(cfg.tabEnabled&&tabPressed())){
             auto list=renderLine(view,cfg.bossbar,cfg.separator);
-            displayWindow("Boss Bar##tabtps", {.5f,0.f},
-                (cfg.tabEnabled&&tabPressed())?cfg.tabYOffset+76.f:20.f,
-                {},list,.55f,cfg.fontScale,true,sample?&*sample:nullptr,
+            displayWindow("Boss Bar##tabtps", {.5f,0.f},16.f,
+                {},list,0.f,cfg.fontScale,true,sample?&*sample:nullptr,
                 cfg.fill,cfg.notches);
         }
     }catch(...){}
@@ -283,8 +325,8 @@ void drawTabTpsSettingsPage() noexcept {
         changed|=ImGui::Checkbox("Enable Tab display",&cfg.tabEnabled);
         changed|=ImGui::Checkbox("Enable Action Bar HUD",&cfg.actionbarEnabled);
         changed|=ImGui::Checkbox("Enable Boss Bar HUD",&cfg.bossbarEnabled);
-        changed|=ImGui::Checkbox("Performance-only Tab overlay (no player rows drawn by Praxis)",&cfg.customOverlayNoPlayerList);
-        ImGui::TextDisabled("Vanilla/other-mod Tab list suppression is not yet guaranteed by this toggle.");
+        changed|=ImGui::Checkbox("Hide vanilla player list (performance-only mode)",&cfg.customOverlayNoPlayerList);
+        ImGui::TextDisabled("OFF: native player list is shown; performance footer appears below it.");
         ImGui::SeparatorText("Modules, comma-separated in exact display order");
         inputCsv("Tab header (default empty)",cfg.header,changed);
         inputCsv("Tab footer",cfg.footer,changed);
@@ -308,7 +350,7 @@ void drawTabTpsSettingsPage() noexcept {
         if(ImGui::Combo("Overlay",&notches,overlays,5)){
             cfg.notches=options[notches];changed=true;
         }
-        changed|=ImGui::SliderFloat("Tab top offset",&cfg.tabYOffset,0.f,300.f,"%.0f px");
+        changed|=ImGui::SliderFloat("Tab footer extra Y offset",&cfg.tabYOffset,0.f,300.f,"%.0f px");
         changed|=ImGui::SliderFloat("Scale",&cfg.fontScale,.65f,2.f,"%.2fx");
         if(changed)applySettings(cfg);
         ImGui::SeparatorText("Live values (no fallback to fake TPS)");
