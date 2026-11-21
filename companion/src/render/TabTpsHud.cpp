@@ -156,7 +156,11 @@ void gradientLine(std::vector<v2::Colored> const& line){
         draw->AddText(pos,ImGui::GetColorU32(color(ch.rgb)),text);
         pos.x+=ImGui::CalcTextSize(text).x;
     }
-    ImGui::Dummy({std::max(0.f,available),ImGui::GetTextLineHeight()});
+    // Register the ACTUAL rendered text width with ImGui layout. A custom
+    // draw-list AddText call does not participate in AlwaysAutoResize sizing.
+    // Using GetContentRegionAvail() here creates a self-referential narrow
+    // window and clips the right-hand modules (notably MSPT).
+    ImGui::Dummy({width,ImGui::GetTextLineHeight()});
 }
 void displayWindow(char const* key,ImVec2 anchor,float y,
     std::vector<v2::Colored> const& header,
