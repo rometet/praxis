@@ -28,6 +28,7 @@ QuickTradeOptions options{false, true, 1, 60000};
 QuickTradeSession session{options};
 ConfirmationState confirmation;
 std::string message{"QuickTrade disabled (session opt-in required)"};
+std::string planIssue{"Trade has not been checked"};
 std::weak_ptr<ContainerScreenController> ownerScreen;
 std::uintptr_t ownerView{};
 std::uint64_t pendingRequest{}, policyToken{};
@@ -81,26 +82,60 @@ std::optional<TradePlan> plan(
     std::shared_ptr<ContainerScreenController> const& screen,
     std::shared_ptr<ContainerManagerController> const& manager,
     std::uintptr_t view) {
-    if (!screen || !manager || !view || !focused() || !inventory::inventoryFocus(false)
-        || manager->mContainersClosed || inventory::requestPathBusy()) return {};
+    planIssue = "Trade not ready";
+    if (!screen || !manager || !view || !focused()
+        || !inventory::inventoryFocus(false)) {
+        planIssue = "Not in a focused trade screen";
+        return {};
+    }
+    if (manager->mContainersClosed) {
+        planIssue = "The trading container is closing";
+        return {};
+    }
+    if (inventory::requestPathBusy()) {
+        planIssue = "Another inventory request is still pending";
+        return {};
+    }
     auto tradeScreen = std::dynamic_pointer_cast<TradeScreenController>(screen);
-    if (!tradeScreen || !tradeScreen->mTradeContainerManagerController) return {};
+    if (!tradeScreen || !tradeScreen->mTradeContainerManagerController) {
+        planIssue = "No active Bedrock trading controller";
+        return {};
+    }
     auto& trade = *tradeScreen->mTradeContainerManagerController;
-    if (static_cast<ContainerManagerController*>(&trade) != manager.get()) return {};
+    if (static_cast<ContainerManagerController*>(&trade) != manager.get()) {
+        planIssue = "Trade controller and displayed container do not match";
+        return {};
+    }
     auto* recipe = trade.mResultPreviewRecipe;
-    if (!recipe || trade.mCurrentRecipeIndex < 0
-        || !selectedCursorIdle(*screen, *manager)) return {};
+    if (!recipe || trade.mCurrentRecipeIndex < 0) {
+        planIssue = "No selected, available villager offer";
+        return {};
+    }
+    if (!selectedCursorIdle(*screen, *manager)) {
+        planIssue = "Cursor is occupied or could not be safely verified";
+        return {};
+    }
 
     SlotData const source = trade.mCreatedItemOutputSlot.get();
     auto const& collection = source.mCollectionName.get();
     if (collection.empty() || !trade.isOutputSlot(collection)
         || !manager->hasContainerController(collection)
         || source.mCollectionIndex < 0
-        || source.mCollectionIndex >= manager->getContainerSize(collection)) return {};
+        || source.mCollectionIndex >= manager->getContainerSize(collection)) {
+        planIssue = "Trade result slot not exposed by the controller";
+        return {};
+    }
     auto const& result = manager->getItemStack(collection, source.mCollectionIndex);
     auto const output = inventory::stackValue(result);
-    if (output.count <= 0 || output.count > 64 || output.locked
-        || output.name != recipe->mSell.get().getTypeName()) return {};
+    if (output.count <= 0) {
+        planIssue = "Trade output is empty; select an affordable offer";
+        return {};
+    }
+    if (output.count > 64 || output.locked
+        || output.name != recipe->mSell.get().getTypeName()) {
+        planIssue = "Trade output differs from selected recipe";
+        return {};
+    }
 
     // Use the game's own 36 player inventory destinations, not container slot guesses.
     for (auto const& candidate : {std::string("hotbar_items"), std::string("inventory_items")}) {
@@ -125,6 +160,7 @@ std::optional<TradePlan> plan(
             };
         }
     }
+    planIssue = "No unlocked inventory slot can hold this trade result";
     return {};
 }
 void halt(std::string reason) noexcept {
@@ -208,6 +244,10 @@ void quickTradeFrame(std::shared_ptr<ContainerScreenController> const& screen,
     if (!eligible) {
         confirmation.clear();
         if (session.active()) halt("QuickTrade stopped: screen/focus/context lost");
+        else if (edge) message = tradeView
+            ? (competingJob ? "QuickTrade blocked by ItemScroller operation"
+                            : "QuickTrade requires a focused, valid trade container")
+            : "QuickTrade requires an open villager trading screen";
         return;
     }
     if (session.active() && !correctOwner(screen, view)) {
@@ -219,15 +259,17 @@ void quickTradeFrame(std::shared_ptr<ContainerScreenController> const& screen,
         handleExistingRequest(*manager, now);
         if (pendingRequest || !session.active()) return;
     }
+    // Query native inventory/trade data only on an activation edge or for an
+    // active session; preserve the last useful status for F10 diagnostics.
+    if (!session.active() && !edge) return;
     auto current = plan(screen, manager, view);
     if (session.active()) {
         if (!current || !session.observe(current->context, now)) {
-            halt("QuickTrade stopped: offer or inventory changed");
+            halt("QuickTrade stopped: " + planIssue);
             return;
         }
     } else {
-        if (!edge) return;
-        if (!current) { message = "QuickTrade not ready: check output, cursor, free inventory and requests"; return; }
+        if (!current) { message = "QuickTrade not ready: " + planIssue; return; }
         if (options.requireConfirmation && !confirmation.press(now)) {
             message = "Press Ctrl+Shift+K again within five seconds to confirm";
             return;

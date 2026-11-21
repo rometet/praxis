@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <string_view>
 namespace praxis::companion {
 // One-click repeat trading is a confirmation-gated state machine. It never
 // builds or sends a transaction: the platform layer performs exactly one
@@ -7,6 +8,12 @@ namespace praxis::companion {
 // Every grant is bounded by a fresh user activation, a context generation and
 // a single outstanding request, so a stale or duplicated acknowledgment can
 // never authorize a second trade.
+// Background HUD UI render events must not reset an active trade screen's
+// two-press confirmation; only process the actual top-screen callback.
+inline bool quickTradeTopViewEvent(std::string_view rendered,
+                                  std::string_view top) noexcept {
+    return !rendered.empty() && rendered == top;
+}
 inline constexpr int quickTradeMinimumTrades = 1;
 inline constexpr int quickTradeMaximumTrades = 64;
 inline constexpr std::uint64_t quickTradeDefaultTimeoutMs = 2000;

@@ -318,6 +318,13 @@ void tick(ContainerManagerController& manager, Context const& c) {
     op.lastStep = now;
 }
 void onFrame(ll::event::AfterUIRenderEvent& event) {
+    // AfterUIRenderEvent runs for every rendered screen, including HUD and
+    // background views while a trade screen remains on top. Never feed those
+    // background events into QuickTrade: they would clear the double-press
+    // confirmation on every frame before the second press could arrive.
+    // A top-screen callback still cancels safely when the trade GUI closes.
+    if (!quickTradeTopViewEvent(event.screenView().getScreenName(),
+                               event.uiRenderContext().mClient.getTopScreenName())) return;
     std::lock_guard lock(mutex);
     if (resetRequested.exchange(false)) {
         quickTradeReset();

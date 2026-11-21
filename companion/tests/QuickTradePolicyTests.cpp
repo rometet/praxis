@@ -1,4 +1,5 @@
 #include "core/QuickTradePolicy.h"
+#include "core/ItemScrollerPolicy.h"
 #include <iostream>
 #include <stdexcept>
 using namespace praxis::companion;
@@ -23,6 +24,19 @@ int main() {
     unsigned checks = 0;
     auto require = [&](bool value, char const* label) { ++checks; if (!value) throw std::runtime_error(label); };
     try {
+        // Only the top rendered UI may reset an active trade confirmation.
+        require(quickTradeTopViewEvent("trade_screen", "trade_screen"), "top trade is processed");
+        require(!quickTradeTopViewEvent("hud_screen", "trade_screen"), "HUD background ignored");
+        require(!quickTradeTopViewEvent("inventory_screen", "trade_screen"), "other background ignored");
+        require(!quickTradeTopViewEvent("", "trade_screen"), "empty rendered screen ignored");
+        require(!quickTradeTopViewEvent("", ""), "empty top screen ignored");
+        require(quickTradeTopViewEvent("hud_screen", "hud_screen"), "actual top HUD permits context reset");
+        {
+            ConfirmationState confirmation;
+            require(!confirmation.press(1000), "first press arms confirmation");
+            require(!quickTradeTopViewEvent("hud_screen", "trade_screen"), "intervening HUD ignored");
+            require(confirmation.press(1200), "second press still confirms after HUD render");
+        }
         // Defaults are OFF and bounded.
         QuickTradeOptions defaults;
         require(!defaults.enabled && defaults.requireConfirmation, "default OFF with confirmation gate");
