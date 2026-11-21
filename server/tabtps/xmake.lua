@@ -1,0 +1,23 @@
+add_rules("mode.debug", "mode.release")
+
+-- Server-only BDS plugin, separated from the client companion.
+add_repositories("levimc-repo https://github.com/LiteLDev/xmake-repo.git")
+add_requires("levilamina 26.60.0", {configs = {target_type = "server"}})
+add_requires("bedrockdata v26.60.6-server.5")
+add_requires("levibuildscript 0.6.1")
+set_languages("c++20")
+set_toolchains("clang-cl")
+set_runtimes("MD")
+add_defines("NOMINMAX", "UNICODE")
+add_cxflags("/utf-8", {tools = {"clang_cl"}})
+
+target("PraxisTabTpsServer")
+    set_kind("shared")
+    set_symbols("debug")
+    add_rules("@levibuildscript/linkrule")
+    add_rules("@levibuildscript/modpacker", {modVersion = "0.1.0", modPlatform = "server"})
+    add_includedirs("src", "../../companion/src")
+    add_files("src/Mod.cpp", "src/MemoryOperators.cpp")
+    add_packages("levilamina", "bedrockdata")
+    add_syslinks("bcrypt", "delayimp")
+target_end()
