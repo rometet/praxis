@@ -26,6 +26,8 @@
 #include "render/ShulkerPreview.h"
 #include "runtime/InformationRuntime.h"
 #include "runtime/GameplayRuntime.h"
+#include "platform/CommandKeysRuntime.h"
+#include "platform/TabTpsClient.h"
 #include "runtime/ConfigStorage.h"
 #include "map/MapRuntime.h"
 #include "ll/api/event/EventBus.h"
@@ -509,6 +511,9 @@ bool installNative(){
  cameraKeyListener=ll::event::EventBus::getInstance().emplaceListener<ll::event::KeyInputEvent>(
   [](ll::event::KeyInputEvent& event){
    NativeHookLifetime::Lease lease(nativeLifetime);if(!lease.admitted())return;
+   if(!event.isCancelled() && tabtps::suppressVanillaTabKey(event.keyCode())) {
+    event.cancel();return;
+   }
    if(cameraCandidateKey(event.keyCode(),event.isDown(),event.isCancelled()))event.cancel();
   });
  if(!cameraKeyListener){removeNative();return false;}
@@ -516,6 +521,7 @@ bool installNative(){
   [](ll::event::ClientExitLevelEvent& event){NativeHookLifetime::Lease lease(nativeLifetime);if(lease.admitted()){cameraCandidateExit(event.self());resetWorldRuntime();}});
  if(!worldExitListener){removeNative();return false;}
  if(!startGameplayRuntime()){removeNative();return false;}
+ if(!startCommandKeysRuntime()){removeNative();return false;}
  if(!startInformationRuntime()){removeNative();return false;}
  if(!installShulkerPreview()){removeNative();return false;}
  if(!installFlexiblePlacement()){removeNative();return false;}
@@ -581,6 +587,7 @@ bool removeNative()noexcept{
  if(!handRestockRemoved||!inventoryRequestsRemoved||!inventoryActionsRemoved||!itemScrollerRemoved)ok=false;
  if(!flexiblePlacementRemoved)ok=false;
  if(!stopInformationRuntime())ok=false;
+ if(!stopCommandKeysRuntime())ok=false;
  if(!stopGameplayRuntime())ok=false;
  availableFeatures.fetch_and(~(featureRegistryBit(unsigned(Feature::AutoTool))
    |featureRegistryBit(unsigned(Feature::EffectTimer))

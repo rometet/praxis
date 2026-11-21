@@ -1,0 +1,9 @@
+{
+  "name": "PraxisTabTpsServer",
+  "entry": "PraxisTabTpsServer.dll",
+  "version": "0.1.0",
+  "type": "native",
+  "platform": "server",
+  "description": "Optional server-tick TPS telemetry for Praxis TabTPS",
+  "author": "rometet"
+}
