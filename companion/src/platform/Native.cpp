@@ -27,6 +27,7 @@
 #include "runtime/InformationRuntime.h"
 #include "runtime/GameplayRuntime.h"
 #include "platform/CommandKeysRuntime.h"
+#include "platform/TabTpsClient.h"
 #include "runtime/ConfigStorage.h"
 #include "map/MapRuntime.h"
 #include "ll/api/event/EventBus.h"
@@ -510,6 +511,9 @@ bool installNative(){
  cameraKeyListener=ll::event::EventBus::getInstance().emplaceListener<ll::event::KeyInputEvent>(
   [](ll::event::KeyInputEvent& event){
    NativeHookLifetime::Lease lease(nativeLifetime);if(!lease.admitted())return;
+   if(!event.isCancelled() && tabtps::suppressVanillaTabKey(event.keyCode())) {
+    event.cancel();return;
+   }
    if(cameraCandidateKey(event.keyCode(),event.isDown(),event.isCancelled()))event.cancel();
   });
  if(!cameraKeyListener){removeNative();return false;}
