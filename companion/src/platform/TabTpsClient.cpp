@@ -14,68 +14,72 @@
 namespace praxis::companion::tabtps {
 namespace {
 std::mutex telemetryMutex;
-Receiver receiver;
+source::Receiver receiver;
 std::uint64_t activeGeneration{};
 
-struct SamplePacket final : ll::network::PacketBase<SamplePacket> {
-    static constexpr std::string_view CustomPacketId{customPacketId};
-    static constexpr uint PacketVersion{customPacketVersion};
+struct SamplePacketV2 final : ll::network::PacketBase<SamplePacketV2> {
+    static constexpr std::string_view CustomPacketId{source::packetId};
+    static constexpr uint PacketVersion{source::packetVersion};
     static constexpr ll::network::PacketSide Side{ll::network::PacketSide::Client};
     static constexpr bool Optional{true};
     std::string wire;
 
     void write(BinaryStream& stream) const override {
-        stream.writeString(wire, "tps_sample", nullptr);
+        stream.writeString(wire, "tabtps_telemetry", nullptr);
     }
     Bedrock::Result<void> read(ReadOnlyBinaryStream& stream) override {
-        auto decoded = stream.getString(128);
-        if (!decoded) return nonstd::make_unexpected(decoded.error());
-        wire = std::move(decoded.value());
+        auto decoded=stream.getString(256);
+        if(!decoded)return nonstd::make_unexpected(decoded.error());
+        wire=std::move(decoded.value());
         return {};
     }
 };
 
-struct SamplePacketHandler final
-    : ll::network::PacketHandlerBase<SamplePacketHandler, SamplePacket> {
-    void handlePacket(NetworkIdentifier const&, NetEventCallback&,
-                      ll::network::PacketSide side, SamplePacket const& packet) const {
-        if (side != ll::network::PacketSide::Client
-            || !runtimeReady.load(std::memory_order_acquire)) return;
-        auto sample = decode(packet.wire);
-        if (!sample) return;
-        auto client = ll::service::getClientInstance();
-        if (!client || client->getClientInstanceState() != ClientInstanceState::Playing
-            || !client->getLocalPlayer()) return;
-        auto const generation = worldGeneration.load(std::memory_order_acquire);
-        if (!generation) return;
+struct SamplePacketHandlerV2 final
+    : ll::network::PacketHandlerBase<SamplePacketHandlerV2,SamplePacketV2> {
+    void handlePacket(NetworkIdentifier const&,NetEventCallback&,
+        ll::network::PacketSide side,SamplePacketV2 const& packet)const {
+        if(side!=ll::network::PacketSide::Client
+            ||!runtimeReady.load(std::memory_order_acquire))return;
+        auto sample=source::decode(packet.wire);
+        if(!sample)return;
+        auto client=ll::service::getClientInstance();
+        if(!client||client->getClientInstanceState()!=ClientInstanceState::Playing
+            ||!client->getLocalPlayer())return;
+        auto const generation=worldGeneration.load(std::memory_order_acquire);
+        if(!generation)return;
         std::lock_guard lock(telemetryMutex);
-        if (activeGeneration != generation) {
-            activeGeneration = generation;
+        if(activeGeneration!=generation){
+            activeGeneration=generation;
             receiver.reset(generation);
         }
-        receiver.accept(*sample, generation, GetTickCount64());
+        receiver.accept(*sample,generation,GetTickCount64());
     }
 };
-// Packet/handler registration is tied to these concrete types by LL's
-// StaticRegistrationAnchor. No inbound packet is required for vanilla peers.
-[[maybe_unused]] SamplePacketHandler packetHandler;
+// Levilamina's StaticRegistrationAnchor binds this actual type with the
+// optional client packet. Old 1s TPS v1 packets are intentionally not accepted.
+[[maybe_unused]] SamplePacketHandlerV2 packetHandler;
 } // namespace
 
+std::optional<source::Snapshot> telemetryView(std::uint64_t nowMs) noexcept {
+    const auto generation=worldGeneration.load(std::memory_order_acquire);
+    if(!generation || !runtimeReady.load(std::memory_order_acquire))return {};
+    std::lock_guard lock(telemetryMutex);
+    if(generation!=activeGeneration)return {};
+    return receiver.fresh(generation,nowMs);
+}
 LiveView liveView(std::uint64_t nowMs) noexcept {
     LiveView result;
-    auto const generation = worldGeneration.load(std::memory_order_acquire);
-    std::lock_guard lock(telemetryMutex);
-    if (generation != activeGeneration) return result;
-    result.status = receiver.status(generation, nowMs);
-    if (auto value = receiver.freshSample(generation, nowMs)) {
-        result.currentTps = tps(*value);
-        result.currentMspt = mspt(*value);
-    }
+    auto s=telemetryView(nowMs);
+    if(!s)return result;
+    result.status=Status::Fresh;
+    if(s->tpsCenti>=0)result.currentTps=s->tpsCenti/100.0;
+    if(s->msptUs>=0)result.currentMspt=s->msptUs/1000.0;
     return result;
 }
 void resetLiveView() noexcept {
     std::lock_guard lock(telemetryMutex);
-    activeGeneration = worldGeneration.load(std::memory_order_acquire);
+    activeGeneration=worldGeneration.load(std::memory_order_acquire);
     receiver.reset(activeGeneration);
 }
 } // namespace praxis::companion::tabtps

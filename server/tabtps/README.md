@@ -1,61 +1,42 @@
-# Praxis TabTPS server companion (experimental)
+# Praxis TabTPS Source-Based Server Mod (Bedrock 26.60)
 
-This is the **server-only** LeviLamina C++ companion for the Praxis TabTPS
-client feature. A client without this plugin will continue to show
-`Server companion unavailable` rather than inventing a TPS value.
+Reference jpenilla/TabTPS @ e0e55e98524643f85aeb0e80bad4411f1a5532a6 (MIT; Copyright 2020-2024 Jason Penilla).
+This Windows telemetry and wire protocol is a Bedrock-specific port, not original Java code.
 
 ## Requirements
 
-- Bedrock Dedicated Server **26.60.6** with matching **LeviLamina 26.60.0 server**.
-- A separately installed Praxis client build containing `TabTpsClient.cpp`
-  with the optional `praxis:tps_sample` packet registered on the client.
-- **Do not** install this server plugin into a regular Minecraft client.
+BDS 1.26.60.6 / LeviLamina 26.60.0; xmake on Windows x64 with pinned bedrockdata.
+Run xmake b PraxisTabTpsServer in the server/tabtps directory.
+Packaged output in bin/PraxisTabTpsServer/ must be installed under server/mods/PraxisTabTpsServer/.
+Do not place the server plugin in Minecraft client mods.
 
-## Build
+## Real measurements (no fabricated data)
 
-From the `server/tabtps` directory:
+- TPS 1m: 60 time-weighted samples of 20 completed tick periods, matching the original Fabric RollingAverage calculation. Java's initial 20TPS seed is disabled: no TPS value until 60 real samples exist.
+- MSPT: measured average busy simulation work across the last 100 ServerLevel::_subTick calls (20 minimum). Excludes idle waits and processing outside the world tick.
+- Ping: each player's real NetworkPeer::NetworkStatus.mCurrentPing, never local FPS or a guessed ping.
+- CPU: system and BDS process CPU percentages using Windows GetSystemTimes / GetProcessTimes, polled at 500ms with 20 nonzero samples.
+- RAM: process Private Working Set versus Private Commit from PROCESS_MEMORY_COUNTERS_EX2. This is not the original JVM heap. Process max is unavailable.
+- Online: active player count from ServerLevel and max-players parsed from the real server.properties file at startup.
 
-```powershell
-xmake f -p windows -a x64 -m release -y
-xmake b PraxisTabTpsServer
-```
+Every unknown value is a -1 sentinel. Zero is reserved for real measured zero.
+One 250ms shared snapshot plus each eligible recipient's Ping field is sent using
+optional LeviLamina custom packet praxis:tabtps_telemetry v2.
+The bounded wire fields are: PTPS2 | epoch | sequence | serverMonotonicMs |
+tpsCenti | msptUs | pingMs | cpuSystemCenti | cpuProcessCenti |
+memoryUsedMiB | memoryCommittedMiB | memoryMaxMiB | onlinePlayers | maxPlayers.
 
-Expected packaged output: `bin/PraxisTabTpsServer/` with
-`PraxisTabTpsServer.dll` and `manifest.json`.
+## Verification status
 
-Install the entire directory under the dedicated server's LeviLamina
-`mods/PraxisTabTpsServer/` directory (LeviLamina 26.60+ uses `mods/`)
-**only after confirming the installed server runtime versions match**.
-Keep it out of active/production BDS until smoke tests pass.
+- The new server native DLL has built successfully.
+- The previous isolated BDS build and first source-based v2 plugin loaded;
+  its real logs verified 1m TPS after warm-up, MSPT, OS CPU, process memory,
+  active players and server player limit.
+- A compatible player must still join to prove optional custom packet
+  negotiation, per-player Ping, the on-screen source-style rendering,
+  reconnect handling and player-list suppression.
+- The new 20-tick-weighted 60-slot revision must be redeployed and runtime checked.
+- This plugin does not reproduce original Java UUID permissions, commands
+  or JVM heap diagnostics. Do not mark those items as implemented.
 
-## Data contract
-
-- `PacketId=praxis:tps_sample`, `PacketVersion=1`, receiver `Client`, optional.
-- Wire string `PTPS1|epoch|sequence|ticks|windowMs|avgFrameUs`.
-- Reports actual observed server tick callbacks per elapsed 1-second window.
-- Only dispatches to players whose client advertises the packet capability.
-- Random per-enable epoch, monotonic sequence and bounded 128-byte payload.
-- Unified LL memory operators in `src/MemoryOperators.cpp` are required for
-  the server loader to accept this plugin.
-- Low-frequency tick sampler heartbeat: first sample and every 30 windows;
-  logs TPS/simulation MSPT/ticks/elapsed/eligible client count, never player identities.
-- **MSPT is now measured** by surrounding the actual `ServerLevel::_subTick`
-  invocation with `std::chrono::steady_clock`. This is the elapsed
-  simulation-tick processing time, not the 50 ms tick interval; it does not
-  include network work and other tasks outside the level tick.
-- `avgFrameUs` holds the mean measured simulation tick duration in microseconds;
-  0 means genuinely unavailable, never a fabricated value.
-- Both metrics travel together in the optional `praxis:tps_sample` v1 packet,
-  without a client protocol version change.
-
-## Still unverified
-
-Server plugin load, enable, and **real MSPT measurement** are verified on the
-sub-PC with BDS 1.26.60.6 and LeviLamina 26.60.0. First measured sample:
-21 completed ticks in 1016 ms (TPS 20.00) and 0.672 ms average simulation
-work per tick; no compatible clients joined yet (eligibleClients=0).
-A live client join + custom-packet negotiation/render test has **not yet**
-been performed. Do not release until that test passes.
-
-Security: server never processes commands from clients or trusts client
-supplied TPS values. It emits telemetry only; no world writes or block edits.
+Do not deploy to production or publish before the live-player acceptance tests.
