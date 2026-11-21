@@ -1,5 +1,6 @@
 #include "gui/GuiBridge.h"
 #include "gui/ResourcePackPage.h"
+#include "gui/CommandKeysPage.h"
 #include "runtime/Runtime.h"
 #include "core/WeatherChangerDiagnostics.h"
 #include "runtime/InformationRuntime.h"
@@ -8,11 +9,13 @@
 #include "render/Renderer.h"
 #include "render/ShulkerPreview.h"
 #include "render/InformationHud.h"
+#include "platform/TabTpsClient.h"
 #include "render/PlayerHud.h"
 #include "gui/HudTools.h"
 #include "gui/JapaneseText.h"
 #include "platform/HandRestock.h"
 #include "platform/ItemScrollerExtras.h"
+#include "platform/QuickTradeRuntime.h"
 #include "gui/PresentationHints.h"
 #include "map/MapRuntime.h"
 #include "map/MapGraphics.h"
@@ -317,6 +320,16 @@ struct ToolPercentLabelProbe {
 void drawPreviewSettings(RuntimeConfig& config, bool& changed);
 void drawItemScrollerPage(RuntimeConfig& config, bool& changed) {
     auto& sc=config.itemScrollerOptions;
+    ImGui::SeparatorText("QuickTrade (experimental)");
+    auto quick=quickTradeOptions();
+    bool quickChanged=false;
+    quickChanged |= ImGui::Checkbox("QuickTrade: enable this session only", &quick.enabled);
+    quickChanged |= ImGui::Checkbox("QuickTrade: require double-press confirmation", &quick.requireConfirmation);
+    quickChanged |= ImGui::SliderInt("QuickTrade: maximum confirmed trades", &quick.maxTrades, 1, 64);
+    if(quickChanged) configureQuickTrade(quick);
+    ImGui::TextWrapped("Trade screen: Ctrl+Shift+K twice to begin. Default OFF; no persisted toggle. Each trade requires a server ItemStackResponse.");
+    ImGui::TextWrapped("Status: %s", quickTradeStatus().c_str());
+
     ImGui::TextUnformatted("ItemScroller / Recipe & Trade Favorites");
     ImGui::SeparatorText("最初に設定する");
     ImGui::TextWrapped("1. この画面でレシピ補助をON、適用キーを登録してください。");
@@ -1190,6 +1203,8 @@ void drawLegacyPraxis(void* context) noexcept {
         pageButton(-8, "HUD");
         pageButton(-17, "AppleSkin");
         pageButton(-18, "ItemScroller");
+        pageButton(-19, "CommandKeys");
+        pageButton(-20, "TabTPS");
         pageButton(-12, "リソパ");
         pageButton(-13, "ブロック比較");
         pageButton(-7, "地図");
@@ -1333,6 +1348,10 @@ void drawLegacyPraxis(void* context) noexcept {
             ImGui::TextDisabled("専用のテキストHUDは廃止。公開SDKのゲームUI描画を利用します。");
         } else if (selected == -18) {
             drawItemScrollerPage(config, changed);
+        } else if (selected == -19) {
+            drawCommandKeysPage();
+        } else if (selected == -20) {
+            tabtps::drawTabTpsSettingsPage();
         } else if (selected == -16) {
             ImGui::TextUnformatted("死亡履歴");
             ImGui::SeparatorText("専用ログ");
@@ -1659,6 +1678,7 @@ bool hudNeeded() noexcept {
     return frameHudNeeded.load(std::memory_order_acquire)
         || shulkerPreviewNeeded()
         || informationHudNeeded()
+        || tabtps::tabHudNeeded()
         || effectHudNeeded()
         || debugHudNeeded()
         || foodHudNeeded()
@@ -1731,6 +1751,7 @@ void drawChunkHudContent(void* context) noexcept {
         if (sharedFontRequired.load(std::memory_order_acquire) && !sharedLegacyUiFontReady(context)) return;
         LegacyUiScope legacyScope;
         if (informationHudNeeded()) drawInformationHud(context);
+        if (tabtps::tabHudNeeded()) tabtps::drawTabHud(context);
         if (effectHudNeeded()) drawEffectHud(context);
         if (debugHudNeeded()) drawDebugHud(context);
         // AppleSkin uses the game HUD texture renderer (AfterUIRenderEvent),

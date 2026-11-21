@@ -57,6 +57,20 @@
 !/companion/tools/run_approved_lifecycle_regressions.py
 !/companion/tools/verify_runtime_package.py
 
+!/server/
+# Server-only TabTPS source. Keep all other server trees and generated
+# runtime files outside the public allow-list.
+/server/*
+!/server/tabtps/
+/server/tabtps/*
+!/server/tabtps/README.md
+!/server/tabtps/manifest.json
+!/server/tabtps/xmake.lua
+!/server/tabtps/src/
+/server/tabtps/src/*
+!/server/tabtps/src/Mod.cpp
+!/server/tabtps/src/MemoryOperators.cpp
+
 # Heavy/generated files under the included trees.
 **/build/
 **/build-*/
