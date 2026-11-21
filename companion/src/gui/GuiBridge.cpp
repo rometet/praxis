@@ -1204,6 +1204,7 @@ void drawLegacyPraxis(void* context) noexcept {
         pageButton(-17, "AppleSkin");
         pageButton(-18, "ItemScroller");
         pageButton(-19, "CommandKeys");
+        pageButton(-20, "TabTPS");
         pageButton(-12, "リソパ");
         pageButton(-13, "ブロック比較");
         pageButton(-7, "地図");
@@ -1349,6 +1350,8 @@ void drawLegacyPraxis(void* context) noexcept {
             drawItemScrollerPage(config, changed);
         } else if (selected == -19) {
             drawCommandKeysPage();
+        } else if (selected == -20) {
+            tabtps::drawTabTpsSettingsPage();
         } else if (selected == -16) {
             ImGui::TextUnformatted("死亡履歴");
             ImGui::SeparatorText("専用ログ");

@@ -756,6 +756,13 @@ target("PraxisCompanionFlexibleFloorStairTests")
 target_end()
 
 -- TabTPS's pure protocol/state tests are standalone, independent of LL or BDS.
+target("PraxisCompanionTabTpsSourcePortTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/TabTpsSourcePortTests.cpp")
+target_end()
+
 target("PraxisCompanionTabTpsProtocolTests")
     set_kind("binary")
     set_default(false)
