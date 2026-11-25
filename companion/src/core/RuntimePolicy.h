@@ -22,7 +22,7 @@ struct LoaderVersionView {
     constexpr bool operator==(LoaderVersionView const&) const noexcept = default;
 };
 
-inline constexpr LoaderVersionView kSupportedLoaderVersion{26, 60, 0, false, true};
+inline constexpr LoaderVersionView kSupportedLoaderVersion{26, 60, 8, false, false};
 
 inline constexpr bool supportedLoaderVersion(LoaderVersionView const& version) noexcept {
     return version == kSupportedLoaderVersion;
