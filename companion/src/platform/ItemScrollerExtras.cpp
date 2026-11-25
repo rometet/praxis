@@ -344,9 +344,16 @@ void onFrame(ll::event::AfterUIRenderEvent& event) {
         return;
     }
     auto s = settings();
-    if (!s->itemScroller.recipeFavorites && !s->itemScroller.tradeFavorites
-        && !quickTradeOptions().enabled) return;
-    observe(*c->manager, *c);
+    bool const observeItems = s->itemScroller.recipeFavorites || s->itemScroller.tradeFavorites;
+    if (!observeItems && !quickTradeOptions().enabled) return;
+    // The ItemScroller observation is the only consumer of observe(); the
+    // QuickTrade frame has its own native plan. Running observe() while only
+    // QuickTrade was armed made the first AfterUIRender frame of a newly opened
+    // container (during the resource-pack world update) perform RTTI on a
+    // ScreenController that the reload was still replacing. CrashLogger showed
+    // the abort in dynamic_pointer_cast<TradeScreenController> here
+    // (trace_2026-11-23_03-35-38.log). Keep the observation tied to its feature.
+    if (observeItems) observe(*c->manager, *c);
     quickTradeFrame(c->screen, c->manager, c->view,
                     c->type == SharedTypes::Legacy::ContainerType::Trade, bool(job));
     if (job) {
