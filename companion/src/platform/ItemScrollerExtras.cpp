@@ -193,7 +193,11 @@ void observe(ContainerManagerController& manager, Context const& c) {
         }
     }
     // Trade preview is plain UI observation. No server transaction is created.
-    auto base = std::dynamic_pointer_cast<TradeScreenController>(c.screen);
+    // The context already classified the container type; use the static cast so
+    // RTTI cannot run on a screen that the resource-pack/world update replaces.
+    auto base = c.type == SharedTypes::Legacy::ContainerType::Trade
+        ? std::static_pointer_cast<TradeScreenController>(c.screen)
+        : std::shared_ptr<TradeScreenController>{};
     if (base && base->mTradeContainerManagerController) {
         auto& trade = *base->mTradeContainerManagerController;
         if (auto* recipe = trade.mResultPreviewRecipe) {
