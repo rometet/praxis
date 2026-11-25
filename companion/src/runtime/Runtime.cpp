@@ -11,6 +11,7 @@
 #include "platform/InventoryRequest.h"
 #include "platform/InventoryActions.h"
 #include "platform/ItemScrollerExtras.h"
+#include "platform/QuickTradeRuntime.h"
 #include "render/Renderer.h"
 #include "render/WorldOverlays.h"
 #include "gui/GuiBridge.h"
@@ -191,6 +192,13 @@ void serviceFrame() {
                                 availableFeatures.load(std::memory_order_acquire));
     if (settingsChanged(*settings(), next)) {
         publishedSettings.store(std::make_shared<Settings const>(next), std::memory_order_release);
+    }
+    // Explicit persisted opt-in. The GUI checkbox is the only writer; default is
+    // false on every process start unless the profile explicitly enables it.
+    if (next.quickTradeEnableOnStart && !quickTradeOptions().enabled) {
+        auto armed = quickTradeOptions();
+        armed.enabled = true;
+        configureQuickTrade(armed);
     }
     pollWeatherChangerDiagnostics(config.weatherChanger);
     frameHudNeeded.store(next.on(Feature::ChunkBorder) && next.chunkBorder.showHud

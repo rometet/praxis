@@ -67,6 +67,7 @@ struct Settings {
  EffectTimerOptions effectTimer{};
  DebugScreenOptions debugScreen{};
  ItemScrollerOptions itemScroller{};
+ bool quickTradeEnableOnStart{};
  FlexiblePlacementOptions flexiblePlacement{};
  AccuratePlacementOptions accuratePlacement{};
  FastClickOptions fastRightClick{}, fastLeftClick{};
