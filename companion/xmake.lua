@@ -19,7 +19,13 @@ add_requires("bedrockdata v26.60.5-client.16")
 add_requireconfs("**.bedrockdata", {version = "v26.60.5-client.16", override = true})
 add_requires("levibuildscript 0.6.1")
 add_requires("imgui v1.91.9", {configs = {shared = false, win32 = true, dx11 = true, no_demo_windows = true}})
-set_toolchains("clang-cl")
+-- Toolchain is overridable for host-only tests on QA boxes without clang-cl
+-- (configure with --toolchain=msvc); production DLL builds keep the clang-cl default.
+option("toolchain")
+    set_default("clang-cl")
+    set_showmenu(true)
+option_end()
+set_toolchains(get_config("toolchain"))
 set_runtimes("MD")
 set_languages("c++20")
 add_defines("NOMINMAX", "UNICODE", "PRAXIS_LL2660_PORT")
@@ -418,6 +424,11 @@ target("PraxisCompanion")
     add_files("src/gui/GuiBridge.cpp", "src/gui/GuiBackendCoordinator.cpp", "src/gui/StandaloneGuiHost.cpp", "src/gui/LegacyUiFont.cpp", "src/font/CorporateLogoFont.cpp", "../src/vendor/kiero/kiero.cpp")
     add_files("src/resources/praxis_companion.rc")
     add_files(table.unpack(integrated_sources))
+    -- BEI (LGPL-3.0-or-later) core plus transfer planner, compiled once here.
+    -- "src/core/bei" is appended after "src" ("src" keeps priority); verified that
+    -- src/core contains no model/recipe/search/state shadowing paths.
+    add_includedirs("src/core/bei")
+    add_files("src/core/bei/core/**.cpp", "src/core/bei/actions/TransferPlanner.cpp")
     add_packages("levilamina", "imgui")
     add_syslinks("user32", "dxgi", "d3d11", "d3d12", "delayimp")
     add_syslinks("bcrypt", "psapi")
@@ -870,4 +881,22 @@ target("PraxisCompanionQuickTradeNativeProbe")
     add_includedirs("src")
     add_files("src/platform/QuickTradeRuntime.cpp")
     add_packages("levilamina")
+target_end()
+
+-- BEI (BarelyEnoughItems, LGPLv3) core-layer port: search / recipe index / item keys,
+-- pure host-side logic. License bundle: licenses/BarelyEnoughItems/, ported from
+-- MiracleForest/BarelyEnoughItems @ 410ecfdeb794dd1b7d7844c0e3ea256091b069c8.
+-- Sources are byte-identical to upstream; internal include paths use "core/..." resolved
+-- from src/core/bei. NOTE for later DLL integration: do not add "src" and "src/core/bei"
+-- in the same target without checking praxis core has no core/{model,recipe,search,state}
+-- shadowing paths (none today for the isolated test target below).
+target("PraxisCompanionBeiCoreTests")
+    set_kind("binary")
+    set_default(false)
+    -- Use the same clang-cl toolchain as the production DLL for UTF-8 sources.
+    set_languages("c++20")
+    add_cxflags("/utf-8", "/EHs")
+    add_packages("levilamina")
+    add_includedirs("src/core/bei")
+    add_files("tests/BeiCoreTests.cpp", "src/core/bei/core/**.cpp", "src/core/bei/actions/TransferPlanner.cpp")
 target_end()
