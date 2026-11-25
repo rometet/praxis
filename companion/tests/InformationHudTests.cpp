@@ -11,6 +11,11 @@ std::shared_ptr<InformationOptions const> testOptions;
 std::shared_ptr<InformationSnapshot const> testSample;
 std::shared_ptr<InformationOptions const> informationOptions() noexcept {return testOptions;}
 std::shared_ptr<InformationSnapshot const> informationSnapshot() noexcept {return testSample;}
+// This target deliberately stays free of the LeviLamina SDK, so the crosshair
+// block-line provider is stubbed here: no runtime, no line. The real provider is
+// exercised by the PraxisCompanionBlockInfoPolicy/BlockInfoHudConfig targets.
+bool blockInfoRuntimeReady() noexcept {return false;}
+std::string blockInfoLineForHud() {return {};}
 }
 using namespace praxis::companion;
 int main() {

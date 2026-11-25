@@ -5,6 +5,7 @@
 #include "core/AntiEffectPolicy.h"
 #include "core/InformationPolicy.h"
 #include "core/HotkeyPolicy.h"
+#include "core/CommandKeysConfig.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -89,6 +90,8 @@ struct RuntimeConfig {
     ToggleSneakSprintOptions toggleSneakSprintOptions{};
     ItemScrollerOptions itemScrollerOptions{};
     bool quickTradeEnableOnStart{};
+ // CommandKeys keeps its own named document ("commandKeys"), never a Feature slot.
+ CommandKeysConfig commandKeys{};
     bool freelook{},freeCamera{};
     bool offhandSwap{};
     CameraOptions freelookOptions{},freeCameraOptions{};
@@ -103,7 +106,16 @@ struct RuntimeConfig {
  AccuratePlacementOptions accuratePlacementOptions{};
  bool fastRightClick{}, fastLeftClick{}, fastBlockPlacement{};
  FastClickOptions fastRightClickOptions{8,1,false,false,false,true},fastLeftClickOptions{};
+ // Pick Block: default unbound (0) so an upgrade never steals an existing key.
+ bool pickBlock{};
+ int pickBlockKey{};
+ unsigned pickBlockModifiers{anyModifiers};
 };
+
+inline bool validPickBlockKey(int key) noexcept {
+    // 0 = unbound. Never grab the function keys the engine reserves.
+    return key >= 0 && key <= 255 && key != 0x79 && key != 0x7A;
+}
 
 inline bool validRuntimeConfig(RuntimeConfig const& config) noexcept {
     auto validFlexibleKey = [](int key) { return key >= 0 && key <= 255 && key != 0x79 && key != 0x7A; };
@@ -118,6 +130,8 @@ inline bool validRuntimeConfig(RuntimeConfig const& config) noexcept {
         && validModifiers(config.zoomModifiers) && validModifiers(config.mapToggleModifiers)
         && std::all_of(config.keybindModifiers.begin(),config.keybindModifiers.end(),validModifiers)
         && validInformationOptions(config.informationOptions)
+        && validPickBlockKey(config.pickBlockKey) && validModifiers(config.pickBlockModifiers)
+        && validCommandKeysConfig(config.commandKeys)
         && validAutoToolOptions(config.autoToolOptions)
         && validAngleSnapOptions(config.angleSnapOptions)
         && validToggleSneakSprintOptions(config.toggleSneakSprintOptions)
@@ -202,6 +216,7 @@ inline Settings runtimeSettings(RuntimeConfig const& config, RenderMask availabl
     result.toggleSneakSprint = config.toggleSneakSprintOptions;
     result.itemScroller = config.itemScrollerOptions;
     result.quickTradeEnableOnStart = config.quickTradeEnableOnStart;
+ result.commandKeys = config.commandKeys;
     result.effectTimer = config.informationOptions.effectTimer;
     result.debugScreen = config.informationOptions.debugScreen;
     result.enabled[static_cast<unsigned>(Feature::AutoTool)] = config.autoTool
@@ -247,6 +262,7 @@ inline Settings runtimeSettings(RuntimeConfig const& config, RenderMask availabl
     result.enabled[unsigned(Feature::FastLeftClick)] = config.fastLeftClick
         && (availableFeatureMask & featureRegistryBit(unsigned(Feature::FastLeftClick))) != 0;
     result.fastBlockPlacement=config.fastBlockPlacement;
+ result.pickBlockKey=config.pickBlockKey;result.pickBlockModifiers=config.pickBlockModifiers;
     result.fastRightClick=config.fastRightClickOptions;
     result.fastLeftClick=config.fastLeftClickOptions;
     result.hitboxOptions=config.hitboxOptions;

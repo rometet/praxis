@@ -51,3 +51,11 @@ in the DLL. Their OFL-1.1 texts, copyright and Japanese notice are retained in
 LOGOTYPE.JP and Adobe's Source Han Sans-derived glyphs.
 
 Praxis Client is an unofficial project, unaffiliated with Mojang or Microsoft.
+
+## Ported source
+
+| Date | Source (repo@commit) | Copyright | License | Files | Changes |
+|---|---|---|---|---|---|
+| 2026-11-24 | MiracleForest/BarelyEnoughItems@410ecfdeb794dd1b7d7844c0e3ea256091b069c8 | (c) MiracleForest | LGPL-3.0 | src/actions/StationTransfer.cpp (transfer :351-411, moveToInventory :167-194, hasCursorItem :161-165) -> companion/src/core/InventoryTransferSafetyPolicy.h, companion/src/platform/InventoryActions.cpp | Ported transfer-safety semantics into PraxisCompanion: cursor-occupied rejection and rollback of partially applied transfers. Rekeyed onto Praxis StackValue/MoveStep; write-back emitted as plan steps and applied by the existing InventoryActions job loop; bounded by InventoryTransferOptions::maxSteps. No behavioural change to the ported rules. |
+| 2026-11-24 | neverforward/Insight@faff2bb5bddaa013c21d386cb90873f423dd0270 | Copyright (c) 2026 neverforward | MIT | companion/src/core/BlockRaycast.{h,cpp} (from src/Raycast.{h,cpp}) | Renamed namespace insight->praxis::companion and RaycastResult->BlockRaycastHit; removed the Config/PlatformLogic dependency. Ray-marching, ShapeType::Outline clip and own-shape re-confirmation unchanged. Used by BlockInfoRuntime for the crosshair block panel. |
+| 2026-11-24 | amatouhake/LaminaSort@6112b79b842c0abae311873edbe2aa9bb8cb8280 | Copyright (c) 2026 amatouhake | MIT | companion/src/core/InventorySortPlan.h, companion/tests/LaminaSortPlannerTests.cpp, companion/xmake.lua (PraxisCompanionLaminaSortPlannerTests), licenses/LaminaSort/LICENSE | LaminaSort sort/merge semantics ported into Praxis (GPL-3.0): planConsolidation/planArrangement/applyOperation/sameStack/planSort plus SortKey compareKeys/normalizeName/canonicalEnchantments/keySignature/contentSignature and StackClassifier groupOf/buildKey. Keyed on Praxis StackValue/MoveStep; mergeability is now the vanilla isStackable verdict (StackValue::mergeGroup) instead of key-string equality; locked/excluded/preserved-hotbar slots are cut from the planner view and operation indices mapped back. New tests reuse SortPlannerTest slot states. |

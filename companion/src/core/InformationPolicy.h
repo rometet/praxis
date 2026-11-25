@@ -26,6 +26,10 @@ struct InformationOptions {
     DebugScreenOptions debugScreen{};
     bool infoHud{};
     bool durabilityHud{};
+    // Crosshair block line (JADE/WAILA-style). One FLAT scalar so the pinned
+    // serializer round-trips it; default off because it is opt-in like the rest
+    // of the overlay set and because Insight may own the block panel.
+    bool blockInfoHud{};
     bool bundlePreview{};
     bool durabilityInformation{};
     bool advancedTooltips{};

@@ -30,6 +30,12 @@ struct StackValue {
     bool damageable{},locked{};
     int id{},category{}; // Public typed SDK metadata, never inferred from the identity key.
     int rarity{};
+    // Vanilla ItemStackBase::isStackable verdict, assigned by InventorySnapshot.
+    // -1 = not observed (tests, offline callers): merge falls back to key equality.
+    // Equal non-negative values mean vanilla lets the stacks combine, which is
+    // LaminaSort's group id; it is deliberately excluded from operator== because
+    // it is derived item state and never part of who a stack is.
+    int mergeGroup{-1};
     bool operator==(StackValue const&)const=default;
 };
 struct HandSnapshot {

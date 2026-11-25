@@ -1679,6 +1679,7 @@ bool hudNeeded() noexcept {
     return frameHudNeeded.load(std::memory_order_acquire)
         || shulkerPreviewNeeded()
         || informationHudNeeded()
+        || blockInfoHudNeeded()
         || tabtps::tabHudNeeded()
         || effectHudNeeded()
         || debugHudNeeded()
@@ -1752,6 +1753,7 @@ void drawChunkHudContent(void* context) noexcept {
         if (sharedFontRequired.load(std::memory_order_acquire) && !sharedLegacyUiFontReady(context)) return;
         LegacyUiScope legacyScope;
         if (informationHudNeeded()) drawInformationHud(context);
+        if (blockInfoHudNeeded()) drawBlockInfoHud(context);
         if (tabtps::tabHudNeeded()) tabtps::drawTabHud(context);
         if (effectHudNeeded()) drawEffectHud(context);
         if (debugHudNeeded()) drawDebugHud(context);

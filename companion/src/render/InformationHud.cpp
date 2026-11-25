@@ -1,5 +1,6 @@
 #include "render/InformationHud.h"
 #include "runtime/InformationRuntime.h"
+#include "platform/BlockInfoRuntime.h"
 #include "core/Settings.h"
 #include "gui/JapaneseText.h"
 #include "core/UiLayoutPolicy.h"
@@ -116,6 +117,58 @@ void drawEffectHud(void* context) noexcept {
         }
         ImGui::End();
     } catch(...) {}
+    ImGui::SetCurrentContext(previous);
+}
+// The crosshair line only makes sense with a live local player. blockInfoLineForHud()
+// already returns "" for air/no target/off, and this cheap gate keeps the window from
+// existing at all outside gameplay so nothing flickers during fade-out frames.
+bool blockInfoHudNeeded() noexcept {
+    auto const o=informationOptions();
+    return runtimeReady.load()&&o->blockInfoHud&&blockInfoRuntimeReady();
+}
+void drawBlockInfoHud(void* context) noexcept {
+    if(!context||!blockInfoHudNeeded())return;
+    // The crosshair probe touches the live Level/BlockSource, which belongs to the game, not
+    // to ImGui. Take the owned copy FIRST, before this frame's context is switched and
+    // before any ImGui state is touched, exactly like the siblings read informationSnapshot()
+    // inside their own frame; the frame below then only formats an already-owned string, so
+    // no Minecraft object is borrowed while the ImGui frame is open.
+    std::string line;
+    try { line=blockInfoLineForHud(); } catch(...) { return; }
+    if(line.empty())return;
+    auto* previous=ImGui::GetCurrentContext();
+    ImGui::SetCurrentContext(static_cast<ImGuiContext*>(context));
+    try {
+        ImVec2 size=ImGui::GetIO().DisplaySize;
+        if(!std::isfinite(size.x)||!std::isfinite(size.y)||size.x<=0||size.y<=0){ImGui::SetCurrentContext(previous);return;}
+        auto const o=informationOptions();
+        float const scale=std::clamp(o->scale,0.5f,3.0f);
+        float const textWidth=ImGui::GetFont()->CalcTextSizeA(ImGui::GetFontSize()*scale,FLT_MAX,0,line.c_str()).x;
+        auto const padding=ImGui::GetStyle().WindowPadding;
+        float const panelWidth=std::min(size.x,textWidth+2*padding.x);
+        float const panelHeight=std::min(size.y,(ImGui::GetFontSize()+ImGui::GetStyle().ItemSpacing.y)*scale+2*padding.y);
+        // Just under the crosshair, horizontally centred, so it never collides
+        // with the top-left InformationHud (registry section 4).
+        float const x=std::clamp((size.x-panelWidth)*0.5f,0.f,std::max(0.f,size.x-panelWidth));
+        float const y=std::clamp(size.y*0.5f+size.y*0.06f,0.f,std::max(0.f,size.y-panelHeight));
+        ImGui::SetNextWindowPos({x,y},ImGuiCond_Always);
+        ImGui::SetNextWindowSize({panelWidth,panelHeight},ImGuiCond_Always);
+        ImGui::SetNextWindowBgAlpha(0.6f);
+        constexpr auto flags=ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_NoSavedSettings
+            |ImGuiWindowFlags_NoFocusOnAppearing|ImGuiWindowFlags_NoNav|ImGuiWindowFlags_NoInputs;
+        if(ImGui::Begin("BlockInfo##praxis_blockinfo",nullptr,flags)) {
+            ImGui::SetWindowFontScale(scale);
+            ImGui::PushStyleColor(ImGuiCol_Text,o->textColor);
+            ImGui::TextUnformatted(line.c_str());
+            ImGui::PopStyleColor();
+        }
+        ImGui::End();
+    } catch(...) {
+        /* Owned-data failure must not escape a provider callback, and must not leave our
+           window open in the shared context: a Begin without its End corrupts the next
+           frame of the sibling HUDs and the F10 menu that share this context. */
+        if(ImGui::GetCurrentContext()==static_cast<ImGuiContext*>(context))ImGui::End();
+    }
     ImGui::SetCurrentContext(previous);
 }
 bool debugHudNeeded() noexcept {

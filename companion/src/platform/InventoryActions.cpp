@@ -3,6 +3,7 @@
 #include "platform/InventorySnapshot.h"
 #include "core/Settings.h"
 #include "core/InventoryActionPolicy.h"
+#include "core/InventoryTransferSafetyPolicy.h"
 #include "gui/GuiBridge.h"
 #include "ll/api/event/EventBus.h"
 #include "ll/api/event/render/UIRenderEvent.h"
@@ -43,11 +44,17 @@ struct Job {
     Snapshot expected;
     Snapshot submittedState;
     std::vector<MoveStep> steps;
+    std::vector<MoveStep> rollback;
     InventorySortOptions options;
     InventoryTransferOptions transferOptions;
     std::size_t index{};
     std::uint64_t token{},started{},lastStep{};
     bool storage{},transfer{};
+    // Rollback is armed only once a native write-down actually reached the game (BEI
+    // StationTransfer.cpp:396-401 guards the same way). A plan that fails before the
+    // first native call has disturbed nothing and needs no write-back.
+    std::size_t applied{};
+    bool rollingBack{};
 };
 struct InputHover {
     std::weak_ptr<ContainerScreenController> screen;
@@ -120,7 +127,7 @@ std::optional<Context> context(ll::event::AfterUIRenderEvent& event) {
     if(cursorName.empty() || cursor.mCollectionIndex<0
         || !manager->hasContainerController(cursorName)
         || manager->getContainerSize(cursorName)<=cursor.mCollectionIndex
-        || stackValue(manager->getItemStack(cursorName,cursor.mCollectionIndex)).count!=0)return {};
+        || !transferAdmittedByCursor(stackValue(manager->getItemStack(cursorName,cursor.mCollectionIndex)).count))return {};
 #else
     if(screen->_isCursorSelectedActive())return {};
 #endif
@@ -179,7 +186,34 @@ std::optional<std::pair<bool,int>> hovered(Context const& c) {
     }
     return {};
 }
+// BEI StationTransfer.cpp:396-401 -- "Don't leave half-filled slots behind." Once a
+// transfer job has written at least one step into the game, a later failure must return
+// what already reached the destination instead of stranding it. The write-back is built
+// from the *live* observation, not the prediction, so it repairs whatever partially
+// landed; the job keeps driving it through the same handlePlaceAmount path.
+std::optional<std::vector<MoveStep>> buildTransferRollback(Job const& op,Snapshot const& live) {
+    auto const& from=op.storage?live.storage.values:live.inventory.values;
+    auto const& to=op.storage?live.inventory.values:live.storage.values;
+    return planTransferRollback(from,to,op.transferOptions.maxSteps);
+}
+// Forward declaration: rollbackOrStop() below reports through stop().
+void stop(std::string const& reason);
+// True when the job accepted rollback steps for `reason`; when it returns false the
+// caller must stop as before. A write-back that itself fails is a dead end: stop.
 void stop(std::string const& reason) {faulted=true;abortAll();logGuiInfo(("Inventory action stopped: "+reason).c_str());}
+bool rollbackOrStop(Job& op,Snapshot const& live,std::string const& reason) {
+    if(op.rollingBack)return true;
+    if(!op.transfer||op.applied==0)return false;
+    auto steps=buildTransferRollback(op,live);
+    if(!steps||steps->empty()){
+        stop(reason+" (nothing could be returned)");
+        return false;
+    }
+    op.rollback=std::move(*steps);
+    op.steps=op.rollback;op.index=0;op.rollingBack=true;op.expected=live;
+    logGuiInfo(("Inventory transfer rolled back after: "+reason).c_str());
+    return true;
+}
 std::vector<StackValue> flatten(Snapshot const& snapshot) {
     auto result=snapshot.inventory.values;result.insert(result.end(),snapshot.storage.values.begin(),snapshot.storage.values.end());return result;
 }
@@ -209,20 +243,58 @@ void tick(Context const& c) {
     if(!s->on(op.transfer?Feature::InventoryTransfer:Feature::InventorySort)||s->inventorySort!=op.options
         ||(op.transfer&&s->inventoryTransfer!=op.transferOptions)||op.screen.lock()!=c.screen||op.view!=c.view
         ||op.expected.player.generation!=worldGeneration.load()){abortAll();return;}
+    // The rollback driver runs first and ignores everything that would normally
+    // invalidate a plan: its only job is to put the destination back.
+    if(op.rollingBack){
+        if(op.token){
+            auto const result=requestResult(op.token);
+            if(result==RequestResult::Waiting)return;
+            if(result!=RequestResult::Accepted){stop("rollback request rejected, timed out or untracked");return;}
+            releaseRequest(op.token);op.token=0;
+        }
+        if(c.snapshot!=op.expected){stop("inventory changed during rollback");return;}
+        if(op.index>=op.steps.size()){logGuiInfo("Inventory transfer rollback complete");cancel();return;}
+        if(time<op.started||time-op.started>60000){stop("rollback deadline");return;}
+        if(time<op.lastStep||time-op.lastStep<50)return;
+        op.started=time;
+        auto const step=op.steps[op.index];
+        auto a=address(c.snapshot,op,step.source),b=address(c.snapshot,op,step.target);
+        if(!a||!b){stop("invalid rollback plan");return;}
+        if(!predict(op,step)){stop("invalid predicted rollback move");return;}
+        op.token=beginRequest(*c.manager);if(!op.token){stop("rollback request could not begin");return;}
+        SlotData const source(a->collection,a->index),target(b->collection,b->index);
+        bool const success=c.manager->handlePlaceAmount(source,step.amount,target);
+        finishRequest(*c.manager,op.token);
+        if(job!=retained)return;
+        if(!success){stop("vanilla rollback move failed");return;}
+        op.submittedState=liveSnapshot(c);
+        ++op.index;op.lastStep=time;
+        return;
+    }
     if(op.token){
         auto const result=requestResult(op.token);
         if(result==RequestResult::Waiting){
             // Compare the complete post-submit native observation before
             // waiting. Cancel the plan; releaseRequest retains its ACK lease.
-            if(c.snapshot!=op.submittedState)stop("inventory changed while awaiting acknowledgement");
+            if(c.snapshot!=op.submittedState&&!rollbackOrStop(op,c.snapshot,"inventory changed while awaiting acknowledgement"))
+                stop("inventory changed while awaiting acknowledgement");
             return;
         }
-        if(result!=RequestResult::Accepted){stop("request rejected, timed out or untracked");return;}
+        if(result!=RequestResult::Accepted){
+            if(rollbackOrStop(op,c.snapshot,"request rejected, timed out or untracked"))return;
+            stop("request rejected, timed out or untracked");return;
+        }
         releaseRequest(op.token);op.token=0;
     }
-    if(c.snapshot!=op.expected){stop("inventory changed");return;}
+    if(c.snapshot!=op.expected){
+        if(rollbackOrStop(op,c.snapshot,"inventory changed"))return;
+        stop("inventory changed");return;
+    }
     if(op.index==op.steps.size()){cancel();return;}
-    if(time<op.started||time-op.started>60000){stop("operation deadline");return;}
+    if(time<op.started||time-op.started>60000){
+        if(rollbackOrStop(op,c.snapshot,"operation deadline"))return;
+        stop("operation deadline");return;
+    }
     if(time<op.lastStep||time-op.lastStep<50)return;
     auto const step=op.steps[op.index];auto a=address(c.snapshot,op,step.source),b=address(c.snapshot,op,step.target);
     if(!a||!b){stop("invalid plan");return;}
@@ -233,7 +305,13 @@ void tick(Context const& c) {
     bool const success=step.swap?c.manager->handleSwap(source,target):c.manager->handlePlaceAmount(source,step.amount,target);
     finishRequest(*c.manager,op.token);
     if(job!=retained)return;
-    if(!success){stop("vanilla move failed");return;}
+    if(!success){
+        // BEI StationTransfer.cpp:393-401 -- the write failed part-way, so return what
+        // already landed instead of leaving the destination half-filled.
+        if(rollbackOrStop(op,c.snapshot,"vanilla move failed"))return;
+        stop("vanilla move failed");return;
+    }
+    ++op.applied;
     op.submittedState=liveSnapshot(c);
     ++op.index;op.lastStep=time;
 }

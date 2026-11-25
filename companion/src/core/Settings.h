@@ -8,6 +8,7 @@
 #include "core/ToolProtectionPolicy.h"
 #include "core/FeatureSlots.h"
 #include "core/HotkeyPolicy.h"
+#include "core/CommandKeysConfig.h"
 #include "core/WeaponSwitchPolicy.h"
 #include "core/HandRestockPolicy.h"
 #include "core/InventorySortPolicy.h"
@@ -68,10 +69,13 @@ struct Settings {
  DebugScreenOptions debugScreen{};
  ItemScrollerOptions itemScroller{};
  bool quickTradeEnableOnStart{};
+ CommandKeysConfig commandKeys{};
  FlexiblePlacementOptions flexiblePlacement{};
  AccuratePlacementOptions accuratePlacement{};
  FastClickOptions fastRightClick{}, fastLeftClick{};
  bool fastBlockPlacement{};
+ int pickBlockKey{};            // 0 = unbound by default
+ unsigned pickBlockModifiers{anyModifiers};
  CameraOptions freelookOptions{},freeCameraOptions{};
  WeatherOptions weatherOptions{};
  int zoomActionKey='C',mapToggleActionKey='M';

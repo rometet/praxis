@@ -27,6 +27,8 @@
 #include "runtime/InformationRuntime.h"
 #include "runtime/GameplayRuntime.h"
 #include "platform/CommandKeysRuntime.h"
+#include "platform/PickBlockRuntime.h"
+#include "platform/BlockInfoRuntime.h"
 #include "platform/TabTpsClient.h"
 #include "runtime/ConfigStorage.h"
 #include "map/MapRuntime.h"
@@ -522,6 +524,8 @@ bool installNative(){
  if(!worldExitListener){removeNative();return false;}
  if(!startGameplayRuntime()){removeNative();return false;}
  if(!startCommandKeysRuntime()){removeNative();return false;}
+ if(!startPickBlockRuntime())logGuiInfo("PickBlock runtime unavailable; the feature stays off");
+ if(!installBlockInfoRuntime())logGuiInfo("BlockInfo runtime unavailable; the feature stays off");
  if(!startInformationRuntime()){removeNative();return false;}
  if(!installShulkerPreview()){removeNative();return false;}
  if(!installFlexiblePlacement()){removeNative();return false;}

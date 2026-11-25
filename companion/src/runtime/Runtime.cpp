@@ -12,6 +12,8 @@
 #include "platform/InventoryActions.h"
 #include "platform/ItemScrollerExtras.h"
 #include "platform/QuickTradeRuntime.h"
+#include "platform/CommandKeysRuntime.h"
+#include "core/CommandKeysConfig.h"
 #include "render/Renderer.h"
 #include "render/WorldOverlays.h"
 #include "gui/GuiBridge.h"
@@ -199,6 +201,16 @@ void serviceFrame() {
         auto armed = quickTradeOptions();
         armed.enabled = true;
         configureQuickTrade(armed);
+    }
+    // CommandKeys: the same explicit persisted opt-in. Default is off on every
+    // process start; the macros come from the named "commandKeys" document, and an
+    // empty or invalid profile arms nothing (the runtime keeps reporting disabled).
+    if (next.commandKeys.enableOnStart && commandKeysProfile().empty()
+        && validCommandKeysConfig(next.commandKeys)) {
+        auto macros = commandKeysFromConfig(next.commandKeys);
+        if (!macros.empty() && validCommandKeyProfile(macros)) {
+            configureCommandKeys(std::move(macros));
+        }
     }
     pollWeatherChangerDiagnostics(config.weatherChanger);
     frameHudNeeded.store(next.on(Feature::ChunkBorder) && next.chunkBorder.showHud
