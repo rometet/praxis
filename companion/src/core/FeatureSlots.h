@@ -13,7 +13,7 @@ enum class Feature : unsigned {
  AutoTool=15, EffectTimer=16, AngleSnap=17, ToggleSneakSprint=18, DebugScreen=19,
  Freelook=20, FreeCamera=21,
  Resource=22, InventoryHUD=23, // Retired; retain the persisted slot, never reuse it.
- AntiEffect=24, Inspector=25, OffhandSwap=26, FlexibleBlockPlacement=27, AccurateBlockPlacement=28, FastRightClick=29, FastLeftClick=30, Count=31
+ AntiEffect=24, Inspector=25, OffhandSwap=26, FlexibleBlockPlacement=27, AccurateBlockPlacement=28, FastRightClick=29, FastLeftClick=30, Screenshot=31, Count=32
 };
 inline constexpr unsigned featureCount=static_cast<unsigned>(Feature::Count);
 inline constexpr unsigned featureSlotSchema=1;
@@ -24,7 +24,7 @@ inline constexpr std::array<char const*,featureCount> featureNames{
  "LightOverlay","Zoom","TimeChanger","WeatherChanger","Hitbox",
  "ToolProtection","WeaponSwitch","HandRestock","InventorySort","InventoryTransfer",
  "AutoTool","EffectTimer","AngleSnap","ToggleSneakSprint","DebugScreen","Freelook","FreeCamera",
- "Reserved22","Reserved23","AntiEffect","Reserved25","OffhandSwap","FlexibleBlockPlacement","AccurateBlockPlacement","FastRightClick","FastLeftClick"};
+ "Reserved22","Reserved23","AntiEffect","Reserved25","OffhandSwap","FlexibleBlockPlacement","AccurateBlockPlacement","FastRightClick","FastLeftClick","Screenshot"};
 // The first eight favorite bits were GUI card positions, not Feature IDs.
 // Their meaning is retained; appended cards use the persisted Feature slot.
 inline constexpr unsigned favoriteSlotForCard(unsigned card, Feature feature) noexcept {

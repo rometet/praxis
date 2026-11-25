@@ -49,6 +49,8 @@ table.insert(integrated_sources, "src/platform/TabTpsClient.cpp")
 table.insert(integrated_sources, "src/render/TabTpsHud.cpp")
 table.insert(integrated_sources, "src/platform/CommandKeysRuntime.cpp")
 table.insert(integrated_sources, "src/gui/CommandKeysPage.cpp")
+-- Screenshot clipboard publishing adapter (LGPL pattern from BEI Clipboard.cpp).
+table.insert(integrated_sources, "src/platform/ScreenshotClipboard.cpp")
 
 -- Existing local page plus optional fresh-title normal application route.
 table.insert(integrated_sources, "src/resourcepacks/PackCatalog.cpp")
@@ -177,7 +179,7 @@ target("PraxisCompanionMapSettingsUiTests")
     add_syslinks("user32", "d3d11", "dxgi", "d3dcompiler")
 target_end()
 
-for _, test in ipairs({"InformationPolicy", "ContainerPreview"}) do
+for _, test in ipairs({"InformationPolicy", "ContainerPreview", "Screenshot"}) do
     target("PraxisCompanion" .. test .. "Tests")
         set_kind("binary")
         set_default(false)

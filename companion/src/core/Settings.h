@@ -31,13 +31,13 @@
 #include <atomic>
 #include <memory>
 namespace praxis::companion {
-// Storage extent 31; own 0..21, 24, 26..30. Retired InventoryHUD23 and
-// unknown/reserved slots stay opaque.
+// Storage extent 32; own 0..21, 24, 26..31. Retired InventoryHUD23 and
+// unknown/reserved slots stay opaque. Screenshot 31 is Goal-3 (HUD/display).
 inline constexpr std::uint32_t ownedFeatureSlotMask=[]() constexpr {
     std::uint32_t mask=0;
     for(unsigned i=0;i<=21u;++i)mask|=featureRegistryBit(i);
     mask|=featureRegistryBit(24u);
-    for(unsigned i=26u;i<=30u;++i)mask|=featureRegistryBit(i);
+    for(unsigned i=26u;i<=31u;++i)mask|=featureRegistryBit(i);
     return mask;
 }();
 struct Settings {
