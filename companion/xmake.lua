@@ -1,4 +1,4 @@
-﻿add_rules("mode.debug", "mode.release")
+add_rules("mode.debug", "mode.release")
 option("levimc_repo")
     set_default("https://github.com/LiteLDev/xmake-repo.git")
     set_showmenu(true)
@@ -38,8 +38,13 @@ table.insert(integrated_sources, "src/platform/InventorySnapshot.cpp")
 table.insert(integrated_sources, "src/platform/HandRestock.cpp")
 table.insert(integrated_sources, "src/platform/InventoryActions.cpp")
 table.insert(integrated_sources, "src/platform/ItemScrollerExtras.cpp")
+table.insert(integrated_sources, "src/platform/QuickTradeRuntime.cpp")
 table.insert(integrated_sources, "src/platform/FastClick.cpp")
 table.insert(integrated_sources, "src/platform/FastBlockPlacement.cpp")
+table.insert(integrated_sources, "src/platform/TabTpsClient.cpp")
+table.insert(integrated_sources, "src/render/TabTpsHud.cpp")
+table.insert(integrated_sources, "src/platform/CommandKeysRuntime.cpp")
+table.insert(integrated_sources, "src/gui/CommandKeysPage.cpp")
 
 -- Existing local page plus optional fresh-title normal application route.
 table.insert(integrated_sources, "src/resourcepacks/PackCatalog.cpp")
@@ -748,4 +753,70 @@ target("PraxisCompanionFlexibleFloorStairTests")
     set_default(false)
     add_includedirs("src")
     add_files("tests/FlexibleFloorStairTests.cpp")
+target_end()
+
+-- TabTPS's pure protocol/state tests are standalone, independent of LL or BDS.
+target("PraxisCompanionTabTpsSourcePortTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/TabTpsSourcePortTests.cpp")
+target_end()
+
+target("PraxisCompanionTabTpsProtocolTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/TabTpsProtocolTests.cpp")
+target_end()
+
+-- Server-side pure measurement policy tests; no BDS process required.
+target("PraxisCompanionTabTpsServerSamplerTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/TabTpsServerSamplerTests.cpp")
+target_end()
+
+-- Build-only native integration probe: catches pinned LL packet/ImGui API drift.
+target("PraxisCompanionTabTpsNativeProbe")
+    set_kind("object")
+    set_default(false)
+    add_includedirs("src")
+    add_files("src/platform/TabTpsClient.cpp", "src/render/TabTpsHud.cpp")
+    add_packages("levilamina", "imgui")
+target_end()
+
+-- CommandKeys policy tests are independent of LL/BDS runtime.
+target("PraxisCompanionCommandKeysPolicyTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/CommandKeysPolicyTests.cpp")
+target_end()
+
+-- CommandKeys native event and vanilla command sender compile probe.
+target("PraxisCompanionCommandKeysNativeProbe")
+    set_kind("object")
+    set_default(false)
+    add_includedirs("src")
+    add_files("src/platform/CommandKeysRuntime.cpp")
+    add_packages("levilamina")
+target_end()
+
+-- Pure QuickTrade policy tests (no game process / no network required).
+target("PraxisCompanionQuickTradePolicyTests")
+    set_kind("binary")
+    set_default(false)
+    add_includedirs("src")
+    add_files("tests/QuickTradePolicyTests.cpp")
+target_end()
+
+-- QuickTrade native UI/controller integration compile probe.
+target("PraxisCompanionQuickTradeNativeProbe")
+    set_kind("object")
+    set_default(false)
+    add_includedirs("src")
+    add_files("src/platform/QuickTradeRuntime.cpp")
+    add_packages("levilamina")
 target_end()

@@ -4,6 +4,7 @@
 #include "gui/GuiBridge.h"
 #include "platform/InventoryRequest.h"
 #include "platform/InventorySnapshot.h"
+#include "platform/QuickTradeRuntime.h"
 #include "ll/api/event/EventBus.h"
 #include "ll/api/event/render/UIRenderEvent.h"
 #include "ll/api/service/TargetedBedrock.h"
@@ -317,8 +318,16 @@ void tick(ContainerManagerController& manager, Context const& c) {
     op.lastStep = now;
 }
 void onFrame(ll::event::AfterUIRenderEvent& event) {
+    // AfterUIRenderEvent runs for every rendered screen, including HUD and
+    // background views while a trade screen remains on top. Never feed those
+    // background events into QuickTrade: they would clear the double-press
+    // confirmation on every frame before the second press could arrive.
+    // A top-screen callback still cancels safely when the trade GUI closes.
+    if (!quickTradeTopViewEvent(event.screenView().getScreenName(),
+                               event.uiRenderContext().mClient.getTopScreenName())) return;
     std::lock_guard lock(mutex);
     if (resetRequested.exchange(false)) {
+        quickTradeReset();
         if (job && job->token) releaseRequest(job->token);
         job.reset();
         applyEdge = {};
@@ -329,13 +338,17 @@ void onFrame(ll::event::AfterUIRenderEvent& event) {
     }
     auto c = context(event);
     if (!c) {
+        quickTradeFrame({}, {}, 0, false, false);
         if (job) stop("Container screen closed");
         applyEdge = {};
         return;
     }
     auto s = settings();
-    if (!s->itemScroller.recipeFavorites && !s->itemScroller.tradeFavorites) return;
+    if (!s->itemScroller.recipeFavorites && !s->itemScroller.tradeFavorites
+        && !quickTradeOptions().enabled) return;
     observe(*c->manager, *c);
+    quickTradeFrame(c->screen, c->manager, c->view,
+                    c->type == SharedTypes::Legacy::ContainerType::Trade, bool(job));
     if (job) {
         tick(*c->manager, *c);
         return;
@@ -431,6 +444,7 @@ bool removeItemScrollerExtras() noexcept {
     return true;
 }
 void resetItemScrollerExtras() noexcept {
+    quickTradeReset();
     resetRequested.store(true);
 }
 std::shared_ptr<ItemScrollerObservation const> itemScrollerObservation() noexcept {
