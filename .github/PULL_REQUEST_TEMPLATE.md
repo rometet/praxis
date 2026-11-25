@@ -13,3 +13,11 @@ Describe how the change was tested or otherwise verified.
 - [ ] Existing copyright, attribution, and third-party license notices are preserved.
 - [ ] I did not add private reference material, credentials, logs, dumps, or server data.
 - [ ] I understand that submitted Praxis contributions are provided under GPL-3.0-or-later unless explicitly agreed otherwise.
+
+
+## Scope / 関連 Issue
+
+- Issue or dependent PR:
+- Acceptance criteria:
+- Build / unit tests / in-game (mark each PASS, FAIL, BLOCKED or NOT RUN):
+- Remaining limitations:

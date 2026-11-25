@@ -1,5 +1,7 @@
 # Praxis Client / PraxisCompanion
 
+**開発に参加 / Contribute:** [Start here](docs/START_HERE.md) · [Good first issues](https://github.com/rometet/praxis/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+
 **Current prerelease: v0.1.7-rc.3** — Minecraft Bedrock for Windows **1.26.60.05**, Windows x64, pinned **LeviLamina Client 26.60.0** (build f28a4b5d).
 
 Praxis is an independent client-side utility mod. The GUI opens with **F10**. LHolo is installed separately and is required for FlexiblePlacement's native placement bridge (ABI v2).
