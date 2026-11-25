@@ -115,7 +115,14 @@ bool setBinding(RuntimeConfig& c,OptionalLholo& host,int group,int id,unsigned k
         }
         *value=operation==0?int(key):0;*mods=operation==0?modifiers:anyModifiers;return true;
     }
-    if(group==6){
+    if(group==7){
+ if(id!=0)return false;
+ if(operation==0){c.pickBlockKey=int(key);c.pickBlockModifiers=modifiers;}
+ else if(operation==1){c.pickBlockKey=0;c.pickBlockModifiers=anyModifiers;}
+ else {c.pickBlockKey=0;c.pickBlockModifiers=anyModifiers;}
+ return true;
+}
+if(group==6){
         if(id<0||id>2)return false;
         int* value=nullptr;unsigned* mods=nullptr;
         switch(id){
@@ -175,6 +182,7 @@ void drawUnifiedHotkeys(RuntimeConfig& c,bool& changed,std::uint32_t& bindingEdi
     rows.push_back({"FlexiblePlacement: 回転 HOLD",{unsigned(c.flexiblePlacementOptions.rotationKey),c.flexiblePlacementOptions.rotationModifiers,1},6,0});
     rows.push_back({"FlexiblePlacement: オフセット HOLD",{unsigned(c.flexiblePlacementOptions.offsetKey),c.flexiblePlacementOptions.offsetModifiers,1},6,1});
     rows.push_back({"FlexiblePlacement: 隣接 HOLD",{unsigned(c.flexiblePlacementOptions.adjacentKey),c.flexiblePlacementOptions.adjacentModifiers,1},6,2});
+    rows.push_back({"Pick Block",{unsigned(c.pickBlockKey),c.pickBlockModifiers,1},7,0});
     rows.push_back({"ズーム（実行）",{unsigned(c.zoomKey),c.zoomModifiers,1},1,0});
     rows.push_back({"地図のON/OFF",{unsigned(c.mapToggleKey),c.mapToggleModifiers,1},2,0});
     auto mapKeys=mapActionBindings();constexpr std::array mapLabels{"ミニマップ切替","拡大","縮小","洞窟切替","自分を中心に","地点を追加"};
