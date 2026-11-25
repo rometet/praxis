@@ -16,6 +16,7 @@
 #include <Windows.h>
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -81,7 +82,7 @@ std::uint64_t offerFingerprint(MerchantRecipe const& r, int index,
 std::optional<TradePlan> plan(
     std::shared_ptr<ContainerScreenController> const& screen,
     std::shared_ptr<ContainerManagerController> const& manager,
-    std::uintptr_t view) {
+    std::uintptr_t view, bool tradeView) {
     planIssue = "Trade not ready";
     if (!screen || !manager || !view || !focused()
         || !inventory::inventoryFocus(false)) {
@@ -96,14 +97,27 @@ std::optional<TradePlan> plan(
         planIssue = "Another inventory request is still pending";
         return {};
     }
-    auto tradeScreen = std::dynamic_pointer_cast<TradeScreenController>(screen);
+    // The caller already classified this screen as a trade container from the
+    // native container type. Use the static cast: RTTI on a screen that the
+    // resource-pack/world update is replacing can abort in dynamic_cast
+    // (trace_2026-11-24_00-23-40.log: QuickTradeRuntime.cpp:99).
+    if (!tradeView) {
+        planIssue = "Not a focused trade screen";
+        return {};
+    }
+    auto tradeScreen = std::static_pointer_cast<TradeScreenController>(screen);
     if (!tradeScreen || !tradeScreen->mTradeContainerManagerController) {
         planIssue = "No active Bedrock trading controller";
         return {};
     }
     auto& trade = *tradeScreen->mTradeContainerManagerController;
-    if (static_cast<ContainerManagerController*>(&trade) != manager.get()) {
-        planIssue = "Trade controller and displayed container do not match";
+    // Bedrock keeps a distinct screen-side ContainerManagerController and a
+    // trade-specific TradeContainerManagerController for the same screen
+    // (observed: trade=..3F00 screen=..3F10, both ContainerType::Trade). Require
+    // the semantic contract instead of pointer identity: the displayed manager
+    // must still be a trade container and must expose the trade output slot.
+    if (manager->getContainerType() != SharedTypes::Legacy::ContainerType::Trade) {
+        planIssue = "The displayed container is not a trade container";
         return {};
     }
     auto* recipe = trade.mResultPreviewRecipe;
@@ -262,7 +276,7 @@ void quickTradeFrame(std::shared_ptr<ContainerScreenController> const& screen,
     // Query native inventory/trade data only on an activation edge or for an
     // active session; preserve the last useful status for F10 diagnostics.
     if (!session.active() && !edge) return;
-    auto current = plan(screen, manager, view);
+    auto current = plan(screen, manager, view, tradeView);
     if (session.active()) {
         if (!current || !session.observe(current->context, now)) {
             halt("QuickTrade stopped: " + planIssue);

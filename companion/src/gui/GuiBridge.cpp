@@ -326,6 +326,7 @@ void drawItemScrollerPage(RuntimeConfig& config, bool& changed) {
     quickChanged |= ImGui::Checkbox("QuickTrade: enable this session only", &quick.enabled);
     quickChanged |= ImGui::Checkbox("QuickTrade: require double-press confirmation", &quick.requireConfirmation);
     quickChanged |= ImGui::SliderInt("QuickTrade: maximum confirmed trades", &quick.maxTrades, 1, 64);
+    changed |= ImGui::Checkbox("QuickTrade: enable on start (persisted)", &config.quickTradeEnableOnStart);
     if(quickChanged) configureQuickTrade(quick);
     ImGui::TextWrapped("Trade screen: Ctrl+Shift+K twice to begin. Default OFF; no persisted toggle. Each trade requires a server ItemStackResponse.");
     ImGui::TextWrapped("Status: %s", quickTradeStatus().c_str());

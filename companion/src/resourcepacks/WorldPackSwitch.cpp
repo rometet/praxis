@@ -1561,8 +1561,10 @@ void tick(MinecraftGame& game) noexcept {
     unsigned inGame=2,leaveDone=2;
     bool limited=false;
     if(inspect)try{
-        auto manager=game->getResourceLoadManager();
-        loadFlag=int(*reinterpret_cast<unsigned char const*>(&manager->mUnk8953d0));
+        // Client.16 removed the private loader-ready byte from public SDK.
+        // Keep loadFlag=-1 (unknown), forcing test.loadReady=false and
+        // preventing unverified native compatibility admission.
+        // Never infer an equivalent offset from neighboring fields.
         inGame=unsigned(game->isInGame());
         leaveDone=unsigned(game->isLeaveGameDone());
         if(op && op->apiReload && !op->request.reload && (!op->nativeSettings || op->r24AuthorizedClone)) {

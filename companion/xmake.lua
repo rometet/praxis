@@ -12,10 +12,11 @@ option("target_type")
     set_showmenu(true)
 option_end()
 
-add_requires("levilamina f28a4b5dd6454948f163b4649238dfecabb7485f", {configs = {target_type = "client"}})
--- Issue #276: bind exact mapped 26.60.05 Windows client symbols.
-add_requires("bedrockdata v26.60.5-client.3")
-add_requireconfs("**.bedrockdata", {version = "v26.60.5-client.3", override = true})
+-- DSH SUB-only QA: use official LL v26.60.8 client SDK and the exact matching
+-- Minecraft 26.60.05 client runtime data declared by LeviLamina lip.toml.
+add_requires("levilamina 26.60.8", {configs = {target_type = "client"}})
+add_requires("bedrockdata v26.60.5-client.16")
+add_requireconfs("**.bedrockdata", {version = "v26.60.5-client.16", override = true})
 add_requires("levibuildscript 0.6.1")
 add_requires("imgui v1.91.9", {configs = {shared = false, win32 = true, dx11 = true, no_demo_windows = true}})
 set_toolchains("clang-cl")

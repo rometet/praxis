@@ -22,7 +22,7 @@ struct LoaderVersionView {
     constexpr bool operator==(LoaderVersionView const&) const noexcept = default;
 };
 
-inline constexpr LoaderVersionView kSupportedLoaderVersion{26, 60, 0, false, true};
+inline constexpr LoaderVersionView kSupportedLoaderVersion{26, 60, 8, false, false};
 
 inline constexpr bool supportedLoaderVersion(LoaderVersionView const& version) noexcept {
     return version == kSupportedLoaderVersion;
@@ -88,6 +88,7 @@ struct RuntimeConfig {
     AngleSnapOptions angleSnapOptions{};
     ToggleSneakSprintOptions toggleSneakSprintOptions{};
     ItemScrollerOptions itemScrollerOptions{};
+    bool quickTradeEnableOnStart{};
     bool freelook{},freeCamera{};
     bool offhandSwap{};
     CameraOptions freelookOptions{},freeCameraOptions{};
@@ -200,6 +201,7 @@ inline Settings runtimeSettings(RuntimeConfig const& config, RenderMask availabl
     result.angleSnap = config.angleSnapOptions;
     result.toggleSneakSprint = config.toggleSneakSprintOptions;
     result.itemScroller = config.itemScrollerOptions;
+    result.quickTradeEnableOnStart = config.quickTradeEnableOnStart;
     result.effectTimer = config.informationOptions.effectTimer;
     result.debugScreen = config.informationOptions.debugScreen;
     result.enabled[static_cast<unsigned>(Feature::AutoTool)] = config.autoTool

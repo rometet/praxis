@@ -33,16 +33,15 @@ LoaderVersionView loaderVersionView(ll::data::Version const& version) noexcept {
         version.build.has_value(),
     };
 }
-// The same verified 26.60.0 loader can report a plain semantic version
-// without its build suffix. Accept it only if its actual loaded DLL is
-// byte-for-byte the previously verified compatible loader. Do not disable
-// the native patch ABI guard for a different loader build.
-bool exactInstalledLoader2660() noexcept {
+// Accept only the exact, verified official LeviLamina 26.60.8 client
+// runtime used by the SUB-only 26.60.05 test instance. Never broaden the
+// native hook ABI guard to arbitrary semver-compatible loader images.
+bool exactInstalledLoader26608() noexcept {
     constexpr std::array<unsigned char,32> expected{
-        0x44,0x64,0xe0,0xf2,0x28,0x94,0xc9,0x82,
-        0x52,0x8b,0xdb,0xeb,0x1a,0x35,0xb4,0xdd,
-        0x5a,0xf5,0x0e,0x13,0x3e,0xd6,0x2f,0x56,
-        0x09,0x0d,0x72,0xe2,0xf1,0x14,0xe0,0x75};
+        0xce,0x97,0x88,0x67,0x5d,0xca,0x20,0xac,
+        0x3c,0x14,0x16,0x51,0x76,0x76,0x52,0x9a,
+        0xdd,0xc4,0xc8,0xbc,0xa7,0xac,0xc2,0xbc,
+        0xa9,0x30,0xa7,0x19,0x89,0xc0,0x83,0x9a};
     auto module=GetModuleHandleW(L"LeviLamina.dll");
     if(!module)return false;
     std::array<wchar_t,32768> path{};
@@ -54,7 +53,7 @@ bool exactInstalledLoader2660() noexcept {
     if(file==INVALID_HANDLE_VALUE)return false;
     struct FileOwner {HANDLE h;~FileOwner(){CloseHandle(h);}} owner{file};
     LARGE_INTEGER size{};
-    if(!GetFileSizeEx(file,&size)||size.QuadPart!=4801024)return false;
+    if(!GetFileSizeEx(file,&size)||size.QuadPart!=4790272)return false;
     BCRYPT_ALG_HANDLE algorithm{};
     BCRYPT_HASH_HANDLE hash{};
     struct BCryptOwner {
@@ -81,7 +80,7 @@ bool exactInstalledLoader2660() noexcept {
         total+=countRead;
     }
     std::array<unsigned char,32> digest{};
-    return total==4801024
+    return total==4790272
         &&BCryptFinishHash(hash,digest.data(),static_cast<ULONG>(digest.size()),0)>=0
         &&digest==expected;
 }
@@ -95,14 +94,13 @@ class CompanionMod {
 
     bool checkLoaderVersion() {
         auto actual = ll::getLoaderVersion();
+        // The installed 26.60.8 DLL's exact SHA-256 is pinned as an ABI
+        // guard; version alone is insufficient for native memory hooks.
         if (supportedLoaderVersion(loaderVersionView(actual))
-            && actual.to_string() == "26.60.0+f28a4b5d") return true;
-        // The verified installed LeviLamina binary can report "26.60.0"
-        // without the build metadata. Keep exact DLL identity validation.
-        if (actual.major == 26 && actual.minor == 60 && actual.patch == 0
-            && !actual.preRelease && !actual.build && exactInstalledLoader2660()) {
+            && actual.to_string() == "26.60.8"
+            && exactInstalledLoader26608()) {
             if (self) self->getLogger().info(
-                "LeviLamina runtime 26.60.0 accepted by exact installed DLL SHA-256.");
+                "LeviLamina runtime 26.60.8 accepted by exact installed DLL SHA-256.");
             return true;
         }
         if (self) {

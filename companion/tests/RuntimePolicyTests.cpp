@@ -13,14 +13,15 @@ static void require(bool value, char const* message) {
 }
 int main() {
     try {
-        require(supportedLoaderVersion({26, 60, 0, false, true}), "exact loader version accepted");
+        require(supportedLoaderVersion({26, 60, 8, false, false}), "exact loader version accepted");
         constexpr std::array unsupported{
             LoaderVersionView{26, 51, 5, false, false},
-            LoaderVersionView{26, 60, 1, false, true},
+            LoaderVersionView{26, 60, 0, false, true},
+            LoaderVersionView{26, 60, 7, false, false},
             LoaderVersionView{26, 59, 0, false, true},
             LoaderVersionView{27, 60, 0, false, true},
-            LoaderVersionView{26, 60, 0, true, true},
-            LoaderVersionView{26, 60, 0, false, false},
+            LoaderVersionView{26, 60, 8, true, true},
+            LoaderVersionView{26, 60, 8, false, true},
         };
         for (auto const& version : unsupported)
             require(!supportedLoaderVersion(version), "non-exact loader version rejected");

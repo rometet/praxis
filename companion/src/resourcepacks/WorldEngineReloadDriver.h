@@ -82,10 +82,12 @@ void runWorldSelection(std::shared_ptr<Operation> const& op,MinecraftScreenModel
 // or user pack identities are retained or logged.
 void auditResourceLoadGate(MinecraftGame& game) noexcept {
     try{
-        auto manager=game.getResourceLoadManager();
-        auto byte=*reinterpret_cast<unsigned char const*>(&manager->mUnk8953d0);
-        packDiagnostic("RESOURCEPACK_WORLD event=resource_load_gate state_byte=%u required=1 leave_done=%u in_game=%u",
-            unsigned(byte),unsigned(game.isLeaveGameDone()),unsigned(game.isInGame()));
+        // The client.16 SDK no longer exports the formerly observed
+        // private ResourceLoadManager byte. Its semantics/offset are not
+        // verified in this ABI; do not guess or read raw memory.
+        // Intentionally leave the special reload-compatibility gate closed.
+        packDiagnostic("RESOURCEPACK_WORLD event=resource_load_gate state_unknown=1 compatibility_disabled=1 leave_done=%u in_game=%u",
+            unsigned(game.isLeaveGameDone()),unsigned(game.isInGame()));
     }catch(...){packDiagnostic("RESOURCEPACK_WORLD event=resource_load_gate unreadable=1");}
 }
 void auditNativePackListeners(MinecraftGame& game,ResourcePackManager& manager) noexcept {
