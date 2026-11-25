@@ -292,7 +292,13 @@ void drawTabHud(void* ctx) noexcept {
             }
         }
         if(cfg.actionbarEnabled){
-            auto list=renderLine(view,cfg.actionbar,cfg.separator);
+            // No fresh sample (server stopped sending, or the 2.5 s freshness
+            // window expired): say so explicitly. Rendering one row of "--"
+            // dashes looked like a live reading and hid the difference between
+            // "healthy" and "no telemetry" from both players and automation.
+            std::vector<v2::Colored> list;
+            if(sample)list=renderLine(view,cfg.actionbar,cfg.separator);
+            else v2::appendSolid(list,"TabTPS: no data",v2::gray);
             if(!list.empty()){
                 const auto* viewport=ImGui::GetMainViewport();
                 const float height=viewport?viewport->Size.y:0.f;
